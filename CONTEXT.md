@@ -33,6 +33,10 @@ _Avoid_: index, pointer, 当前项
 An image that could not be fetched (404, timeout, blocked site). In auto and list modes the failure is skipped and the cursor continues; the panel marks the failed post.
 _Avoid_: error, 报错
 
+**Animated (动画帖子)**:
+A post whose file is an animation (webm/gif/swf). Manual mode refuses to output it with a clear error; auto/list skip semantics land with later tickets.
+_Avoid_: video, 视频帖子
+
 ## 交互 / Interaction
 
 **Browse panel (浏览面板)**:

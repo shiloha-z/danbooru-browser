@@ -1,0 +1,12 @@
+[project]
+name = "danbooru-browser"
+version = "0.1.0"
+description = "ComfyUI custom node: browse danbooru/gelbooru/civitai, output selected posts (image + prompt + metadata)"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# "." 让 core/sites 可导入;"tests" 让 fakes 可导入。测试按顶层模块导入;
+# 仓库根 __init__ 可被 pytest 的 Package collector 收集,故其 comfy 依赖用
+# try/except ImportError 守卫,测试环境下只做占位
+pythonpath = [".", "tests"]
+addopts = "--import-mode=importlib"
