@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PROTOTYPE · Danbooru Browser 浏览面板</title>
+<style>
+  /* ============ 原型外壳 ============ */
+  :root{
+    --bg:#161619; --node:#26262b; --title:#101013; --line:#3a3a42;
+    --text:#d8d8de; --muted:#8a8a94; --input:#1d1d22;
+    --a:#4f8cff; --b:#7bd88f; --c:#c792ff;
+    --red:#ff5f56; --yellow:#ffb454; --orange:#ff9d45; --pink:#ff7ab6;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{background:var(--bg); color:var(--text);
+       font:13px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;
+       background-image:radial-gradient(circle,#23232b 1px,transparent 1px); background-size:26px 26px;}
+  button{font:inherit; color:var(--text); background:#33333c; border:1px solid var(--line);
+         border-radius:6px; padding:3px 10px; cursor:pointer;}
+  button:hover{background:#3e3e49}
+  button.active{background:#4a5c85; border-color:#6f8fd8}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  input[type=text]{background:var(--input); border:1px solid var(--line); color:var(--text);
+                   border-radius:6px; padding:4px 8px; outline:none; min-width:0}
+  input[type=text]:focus{border-color:#6f8fd8}
+  select{background:var(--input); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:3px 6px; outline:none}
+  label{color:var(--muted); font-size:11px}
+  .hidden{display:none !important}
+
+  #banner{position:fixed; top:0; left:0; right:0; background:#3a1d1d; color:#ffb4a8;
+          text-align:center; font-size:12px; padding:3px; z-index:60}
+  #canvas{min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:44px 24px 110px}
+  #node{width:1120px; max-width:98vw; background:var(--node); border:1px solid var(--line);
+        border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  #titlebar{background:var(--title); border-radius:10px 10px 0 0; padding:7px 12px;
+            display:flex; align-items:center; gap:8px; font-weight:600}
+  #titlebar .grip{color:#55555f; letter-spacing:2px}
+  #titlebar .tag{margin-left:auto; color:var(--yellow); font-size:11px; font-weight:400}
+  #body{padding:12px}
+  #ports{border-top:1px solid var(--line); padding:6px 12px; color:var(--muted); font-size:11px;
+         display:flex; justify-content:flex-end; gap:14px; font-family:Consolas,monospace}
+
+  /* ============ 通用:缩略图 ============ */
+  .thumb{position:relative; border-radius:6px; overflow:hidden; cursor:pointer;
+         border:2px solid transparent; background-size:cover}
+  .thumb .rid{position:absolute; top:4px; left:4px; font-size:10px; border-radius:4px;
+              padding:0 5px; background:rgba(0,0,0,.55)}
+  .thumb .score{position:absolute; bottom:4px; right:4px; font-size:10px; color:#fff;
+                background:rgba(0,0,0,.55); padding:0 5px; border-radius:4px}
+  .thumb.failed{border-color:var(--red)}
+  .thumb.failed::after{content:"下载失败"; position:absolute; inset:0; display:flex;
+                       align-items:center; justify-content:center; color:#fff;
+                       background:rgba(160,20,20,.62); font-size:12px}
+  .r-g{background:#4f8cff} .r-s{background:#ffb454} .r-q{background:#ff9d45} .r-e{background:#ff7ab6}
+
+  /* ============ 变体 A:经典工具栏 ============ */
+  .a-toolbar{display:flex; gap:8px; margin-bottom:8px; align-items:center}
+  .a-toolbar input{flex:1}
+  #a-exclude{flex:1}
+  .a-toolbar2{display:flex; gap:8px; align-items:center; margin-bottom:8px}
+  .a-mode{display:flex; gap:4px; background:#1d1d22; border:1px solid var(--line); border-radius:6px; padding:2px}
+  .a-mode button{border:none; background:none; padding:2px 10px; border-radius:4px}
+  .a-mode button.active{background:var(--a); color:#fff}
+  #a-outfilter{flex:1; max-width:220px; margin-left:auto}
+  .a-toolbar3{display:flex; gap:12px; align-items:center; margin-bottom:8px; flex-wrap:wrap}
+  .a-chip{border-radius:12px; padding:2px 10px; font-size:12px; border:1px solid var(--line); cursor:pointer; user-select:none}
+  .a-chip.on{border-color:var(--a); color:var(--a)}
+  .a-status{color:var(--muted); font-size:12px; padding:5px 8px; background:#1d1d22;
+            border-radius:6px; margin-bottom:8px; display:flex; gap:16px}
+  .a-status b{color:var(--text)}
+  #a-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:8px}
+  #a-grid .thumb{height:110px}
+  #a-grid .thumb.sel{border-color:var(--a); box-shadow:0 0 0 2px rgba(79,140,255,.35)}
+  .a-footer{min-height:44px; margin-top:8px; border:1px dashed var(--line); border-radius:6px;
+            padding:8px 10px; display:flex; align-items:center; gap:10px; font-size:12px}
+  .a-footer .prompt{color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .a-footer .filt{color:var(--yellow)}
+
+  /* ============ 变体 B:左栏控制台 ============ */
+  .b-wrap{display:flex; gap:10px}
+  .b-side{width:230px; flex:none; background:#1d1d22; border:1px solid var(--line);
+          border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px}
+  .b-side .grp{display:flex; flex-direction:column; gap:4px}
+  .b-site{display:flex; gap:4px}
+  .b-site button{flex:1; font-size:11px; padding:4px 0}
+  .b-site button.active{background:var(--b); color:#0c2414}
+  .b-rating{display:flex; flex-direction:column; gap:3px}
+  .b-rating label{display:flex; align-items:center; gap:6px; color:var(--text); font-size:12px; cursor:pointer}
+  .b-apply{background:var(--b); color:#0c2414; border:none; padding:5px; border-radius:6px; font-weight:600}
+  .b-main{flex:1; position:relative; min-height:430px}
+  #b-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px}
+  #b-grid .thumb{height:88px}
+  #b-grid .thumb.sel{border-color:var(--b); box-shadow:0 0 0 2px rgba(123,216,143,.35)}
+  #b-grid .thumb .add{position:absolute; bottom:4px; left:4px; font-size:10px; background:var(--b);
+                      color:#0c2414; border-radius:4px; padding:0 6px; display:none}
+  #b-grid .thumb:hover .add{display:block}
+  .b-float{position:absolute; right:8px; bottom:8px; display:flex; gap:4px; align-items:center;
+           background:rgba(20,20,24,.9); border:1px solid var(--line); border-radius:8px; padding:4px 6px}
+  .b-float .fdot{width:8px; height:8px; border-radius:50%; background:var(--b); margin:0 4px}
+  .b-status{color:var(--muted); font-size:12px; padding:5px 8px; margin-top:8px;
+            background:#1d1d22; border-radius:6px; display:flex; gap:16px}
+  .b-drawer{position:absolute; right:8px; bottom:44px; width:230px; background:#1d1d22;
+            border:1px solid var(--line); border-radius:8px; padding:8px; z-index:10}
+  .b-drawer h4{font-size:12px; color:var(--muted); margin-bottom:6px}
+  .b-drawer .item{display:flex; align-items:center; justify-content:space-between;
+                  padding:3px 4px; font-size:12px; border-radius:4px}
+  .b-drawer .item:hover{background:#26262b}
+  .b-drawer .x{color:var(--red); cursor:pointer; font-size:14px}
+
+  /* ============ 变体 C:沉浸看图 ============ */
+  .c-top{display:flex; gap:8px; align-items:center; margin-bottom:10px}
+  .c-top input{flex:1}
+  .c-panel{background:#1d1d22; border:1px solid var(--line); border-radius:8px; padding:10px;
+           margin-bottom:10px; display:flex; gap:20px; flex-wrap:wrap; align-items:center}
+  #c-grid{columns:5 150px; column-gap:8px}
+  #c-grid .thumb{break-inside:avoid; margin-bottom:8px; width:100%}
+  #c-grid .thumb.sel{border-color:var(--c); box-shadow:0 0 0 2px rgba(199,146,255,.35)}
+  .c-pill{position:absolute; right:14px; bottom:14px; display:flex; gap:6px; align-items:center;
+          background:rgba(20,20,24,.92); border:1px solid var(--line); border-radius:20px; padding:5px 12px;
+          font-size:12px; color:var(--muted)}
+  .c-pill b{color:var(--text)}
+  #c-lb{position:fixed; inset:0; background:rgba(0,0,0,.78); display:flex; align-items:center;
+        justify-content:center; z-index:50}
+  .c-card{background:var(--node); border:1px solid var(--line); border-radius:10px;
+          display:flex; max-width:920px; width:92vw; max-height:86vh; overflow:hidden}
+  .c-img{width:520px; flex:none}
+  .c-side{flex:1; padding:14px; display:flex; flex-direction:column; gap:10px; min-width:300px; overflow:auto}
+  .c-side h3{font-size:14px}
+  textarea{width:100%; height:64px; background:var(--input); border:1px solid var(--line);
+           color:var(--text); border-radius:6px; padding:6px 8px; font:12px/1.5 Consolas,monospace; resize:none}
+  .c-tags{display:flex; flex-wrap:wrap; gap:5px}
+  .c-tag{font-size:11px; background:#33333c; border:1px solid var(--line); border-radius:10px;
+         padding:1px 8px; cursor:pointer}
+  .c-tag:hover{border-color:var(--c)}
+  .c-tag.filtered{opacity:.35; text-decoration:line-through; cursor:not-allowed}
+  .c-meta{font:11px Consolas,monospace; color:var(--muted); background:#1d1d22; padding:6px 8px;
+          border-radius:6px; max-height:80px; overflow:auto}
+  .c-note{color:var(--yellow); font-size:12px}
+  .c-empty{text-align:center; padding:80px 20px; color:var(--muted)}
+  .c-empty .big{font-size:40px; margin-bottom:10px}
+
+  /* ============ 底部变体切换条 ============ */
+  #switcher{position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+            display:flex; align-items:center; gap:10px; background:#1d1d22; border:1px solid var(--line);
+            border-radius:22px; padding:6px 14px; z-index:70; box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  #switcher button{width:30px; height:30px; border-radius:50%; font-size:14px; padding:0}
+  #sw-name{font-weight:600; min-width:130px; text-align:center}
+  #sw-hint{color:var(--muted); font-size:11px}
+</style>
+</head>
+<body>
+<div id="banner">PROTOTYPE · 临时设计稿,不进生产 — 回答「节点浏览面板用什么布局」 · 底部切换条 / 键盘 ←→ 换变体</div>
+
+<div id="canvas">
+  <div id="node">
+    <div id="titlebar">
+      <span class="grip">⠿⠿</span> Danbooru Browser
+      <span class="tag">PROTOTYPE · 浏览面板 UI</span>
+    </div>
+    <div id="body">
+      <div id="variantA" class="variant"></div>
+      <div id="variantB" class="variant"></div>
+      <div id="variantC" class="variant"></div>
+    </div>
+    <div id="ports"><span>IMAGE ▸</span><span>PROMPT ▸</span><span>META(JSON) ▸</span></div>
+  </div>
+</div>
+
+<div id="switcher">
+  <button id="sw-prev" title="上一个变体">◀</button>
+  <span id="sw-name">A · 经典工具栏</span>
+  <button id="sw-next" title="下一个变体">▶</button>
+  <span id="sw-hint">← / → 切换 · ?variant=A|B|C 分享</span>
+</div>
+
+<div id="c-lb" class="hidden"></div>
+
+<script>
+/* ============ 共享状态(跨变体保持) ============ */
+const STATE = {
+  site:'danbooru', search:'', exclude:'', outFilter:'',
+  rating:['g','s','q','e'], sort:'最新', perPage:40,
+  mode:'manual',          // manual | auto | list
+  cursor:3, total:42,
+  selected:null,
+  list:[7,3],
+  cPanelOpen:false, bDrawerOpen:false,
+};
+
+/* ============ 模拟数据 ============ */
+const POSTS = [
+  {id:1, tags:['1girl','long_hair','blue_eyes','school_uniform','sky'],          r:'g', s:880,  h:120},
+  {id:2, tags:['1girl','blonde_hair','twintails','outdoors','sunlight'],         r:'g', s:742,  h:150},
+  {id:3, tags:['1girl','solo','white_dress','wings','angel'],                    r:'g', s:961,  h:100},
+  {id:4, tags:['1girl','short_hair','green_eyes','smile','indoors'],             r:'g', s:655,  h:140},
+  {id:5, tags:['1girl','kimono','hair_ornament','festival','night'],             r:'s', s:512,  h:110, failed:true},
+  {id:6, tags:['2girls','hug','long_hair','warm','indoors'],                     r:'s', s:723,  h:170},
+  {id:7, tags:['1girl','rain','umbrella','night','reflection'],                  r:'s', s:1102, h:130},
+  {id:8, tags:['1girl','bunny_ears','glasses','office_lady','suit'],             r:'s', s:489,  h:150},
+  {id:9, tags:['1girl','bikini','pool','water_splash','sunlight'],               r:'q', s:812,  h:160},
+  {id:10,tags:['1girl','swimsuit','beach','sunset','scenery'],                   r:'q', s:934,  h:120},
+  {id:11,tags:['1girl','bandage','one_shoulder','confident','indoors'],          r:'q', s:601,  h:180},
+  {id:12,tags:['1girl','latex','dark_room','spotlight','gloves'],                r:'e', s:547,  h:140, failed:true},
+  {id:13,tags:['1girl','garter','thighhighs','lingerie','indoors'],              r:'e', s:778,  h:170},
+  {id:14,tags:['2girls','chains','yuri','monochrome','close-up'],                r:'e', s:430,  h:110},
+  {id:15,tags:['1girl','white_hair','red_eyes','devil','horns','smile'],         r:'e', s:1150, h:150},
+  {id:16,tags:['1girl','crossdressing','suit','tie','short_hair'],               r:'e', s:388,  h:130},
+];
+const RATING_LABEL = {g:'普通', s:'敏感', q:'可疑', e:'R18'};
+const VARIANTS = [
+  {k:'A', n:'经典工具栏'}, {k:'B', n:'左栏控制台'}, {k:'C', n:'沉浸看图'},
+];
+
+/* ============ 派生逻辑(演示 #12/#13 的语义) ============ */
+function tokens(s){ return (s||'').trim().toLowerCase().split(/\s+/).filter(Boolean) }
+function filtered(){
+  const q = tokens(STATE.search), ex = tokens(STATE.exclude);
+  let p = POSTS.filter(p =>
+    (!STATE.rating.length || STATE.rating.includes(p.r)) &&
+    q.every(t => p.tags.some(tag => tag.includes(t))) &&
+    !ex.some(t => p.tags.includes(t)));
+  if (STATE.sort === '评分') p = [...p].sort((a,b)=>b.s-a.s);
+  if (STATE.sort === '随机') p = [...p].sort(()=>Math.random()-0.5);
+  return p.slice(0, STATE.perPage);
+}
+function outputPrompt(p){            // #13:只滤输出,元数据不动
+  const f = tokens(STATE.outFilter);
+  return p.tags.filter(t => !f.includes(t)).join(', ');
+}
+function postById(id){ return POSTS.find(p=>p.id===id) }
+function statusLine(){
+  const m = {manual:'普通', auto:'自动', list:'列表'}[STATE.mode];
+  return `${m} · 游标 <b>${STATE.cursor}/${STATE.total}</b> · 已选 ${STATE.selected?'<b>#'+STATE.selected+'</b>':'—'} · 列表 <b>${STATE.list.length}</b> · 失败 <b>${POSTS.filter(p=>p.failed).length}</b>`;
+}
+function thumbHTML(p, selCls){
+  const sel = STATE.selected===p.id ? ` ${selCls}` : '';
+  const failed = p.failed ? ' failed' : '';
+  const hue = (p.id*37)%360;
+  return `<div class="thumb${failed}${sel}" data-id="${p.id}" style="background:linear-gradient(135deg,hsl(${hue} 45% 34%),hsl(${(hue+70)%360} 42% 20%))">
+    <span class="rid r-${p.r}">${p.id}</span><span class="score">★${p.s}</span>
+    ${selCls==='bsel' ? '<span class="add">＋列表</span>' : ''}</div>`;
+}
+function ratingChips(accent){      // 评级四类多选
+  return ['g','s','q','e'].map(r => {
+    const cls = STATE.rating.includes(r) ? ' chip on' : ' chip';
+    return `<span class="a-chip${cls}" data-r="${r}">${RATING_LABEL[r]}(${r})</span>`;
+  }).join('');
+}
+function bindChips(root){
+  root.querySelectorAll('.a-chip').forEach(ch =>
+    ch.onclick = () => {
+      const r = ch.dataset.r;
+      STATE.rating = STATE.rating.includes(r) ? STATE.rating.filter(x=>x!==r) : [...STATE.rating, r];
+      render();
+    });
+}
+function gridHandlers(root, selCls){
+  root.querySelectorAll('.thumb').forEach(t => t.onclick = () => {
+    const id = +t.dataset.id;
+    STATE.selected = STATE.selected===id ? null : id;
+    render();
+  });
+  root.querySelectorAll('.add').forEach(a => a.onclick = e => {
+    e.stopPropagation();
+    const id = +a.closest('.thumb').dataset.id;
+    if (!STATE.list.includes(id)) STATE.list.push(id);
+    render();
+  });
+}
+function siteControls(root){
+  root.querySelectorAll('[data-site]').forEach(b => b.onclick = () => {
+    STATE.site = b.dataset.site; render();
+  });
+  root.querySelectorAll('select[data-site-sel]').forEach(s => s.onchange = () => {
+    STATE.site = s.value; render();
+  });
+}
+function civitaiDisable(root){    // civitai:无标签体系 → 排除/输出过滤禁用,搜索框变模型搜索
+  const isC = STATE.site === 'civitai';
+  root.querySelectorAll('[data-booru-only]').forEach(el => el.disabled = isC);
+  root.querySelectorAll('[data-search]').forEach(el => el.placeholder = isC ? '搜索模型(模型名)…' : '标签搜索,空格分隔(如 1girl blue_eyes)…');
+}
+function modeUI(btn, activeCls){
+  btn.classList.toggle(activeCls, STATE.mode === btn.dataset.mode);
+  btn.onclick = () => { STATE.mode = btn.dataset.mode; render(); };
+}
+function autoStep(){
+  STATE.mode = 'auto';
+  STATE.cursor = (STATE.cursor+1) % Math.max(STATE.total, 1);
+  render();
+}
+function resetCursor(){ STATE.cursor = 0; render(); }
+function emptyHint(variant){
+  const hints = {
+    A: `<div class="a-status" style="justify-content:center;padding:46px"><div style="text-align:center">🔍 没有符合条件的帖子<br><span style="font-size:12px">检查标签拼写、评级选择,或清空「排除标签」</span></div></div>`,
+    B: `<div style="text-align:center;padding:60px 0;color:var(--muted)">结果为空 — 修改左侧筛选条件,或清空「排除标签」</div>`,
+    C: `<div class="c-empty"><div class="big">🔍</div>没有符合条件的帖子<br><span style="font-size:12px">调整筛选或清空排除标签后再试</span></div>`,
+  };
+  return hints[variant];
+}
+
+/* ============ 变体 A:经典工具栏 ============ */
+function renderA(){
+  const V = document.getElementById('variantA');
+  const isC = STATE.site==='civitai';
+  V.innerHTML = `
+  <div class="a-toolbar">
+    <select data-site-sel>
+      <option value="danbooru" ${isC?'':'selected'}>danbooru</option>
+      <option value="gelbooru" ${false&&''}>gelbooru</option>
+      <option value="civitai" ${isC?'selected':''}>civitai</option>
+    </select>
+    <input type="text" data-search id="a-search" value="${STATE.search}" placeholder="标签搜索,空格分隔…">
+    <input type="text" data-booru-only id="a-exclude" value="${STATE.exclude}" placeholder="排除标签 −含这些标签的帖子不显示" title="含任一排除标签的帖子不进结果">
+  </div>
+  <div class="a-toolbar2">
+    <div class="a-mode">
+      <button data-mode="manual" ${STATE.mode==='manual'?'class="active"':''}>普通</button>
+      <button data-mode="auto" ${STATE.mode==='auto'?'class="active"':''}>自动</button>
+      <button data-mode="list" ${STATE.mode==='list'?'class="active"':''}>列表</button>
+    </div>
+    <button id="a-auto" title="自动模式:每执行一次游标前进一张">▶ 自动</button>
+    <button id="a-reset" title="游标回到第一张">⟲ 重置游标</button>
+    <input type="text" data-booru-only id="a-outfilter" value="${STATE.outFilter}" placeholder="输出过滤标签(只影响输出的提示词)">
+  </div>
+  <div class="a-toolbar3">
+    <span style="color:var(--muted)">评级</span>${ratingChips()}
+    <select id="a-sort"><option ${STATE.sort==='最新'?'selected':''}>最新</option><option ${STATE.sort==='评分'?'selected':''}>评分</option><option ${STATE.sort==='随机'?'selected':''}>随机</option></select>
+    <span style="color:var(--muted)">每页</span>
+    <select id="a-perpage"><option ${STATE.perPage===20?'selected':''}>20</option><option ${STATE.perPage===40?'selected':''}>40</option><option ${STATE.perPage===60?'selected':''}>60</option></select>
+    ${isC ? '<span style="color:var(--yellow)">civitai:模型搜索,无标签体系</span>' : ''}
+  </div>
+  <div class="a-status"><span>${statusLine()}</span><span id="a-selinfo" style="margin-left:auto"></span></div>
+  <div id="a-grid"></div>
+  <div class="a-footer" id="a-footer"></div>`;
+
+  const list = filtered();
+  const grid = document.getElementById('a-grid');
+  if (!list.length) grid.innerHTML = emptyHint('A');
+  else { grid.innerHTML = list.map(p=>thumbHTML(p,'asel')).join(''); gridHandlers(grid,'asel'); }
+
+  const sel = STATE.selected ? postById(STATE.selected) : null;
+  const info = document.getElementById('a-selinfo');
+  info.innerHTML = sel ? `选中 <b>#${sel.id}</b> · ${sel.tags.length} tags` : '未选中';
+  const foot = document.getElementById('a-footer');
+  if (!sel) foot.innerHTML = '<span style="color:var(--muted)">点击缩略图选中一张 → 底部预览其输出的提示词与元数据</span>';
+  else {
+    const prompt = outputPrompt(sel), nFilt = sel.tags.length - tokens(STATE.outFilter).filter(t=>sel.tags.includes(t)).length;
+    foot.innerHTML = `<span class="prompt">输出提示词:${prompt || '<span style="color:var(--red)">(空 — 全部标签被过滤)</span>'}</span>
+      <span class="filt">${nFilt?`滤掉 ${nFilt} 个标签`:''}</span>
+      <button id="a-toList" ${STATE.list.includes(sel.id)?'disabled':''}>＋加入列表</button>`;
+    const b = document.getElementById('a-toList');
+    if (b) b.onclick = () => { if(!STATE.list.includes(sel.id)) STATE.list.push(sel.id); render(); };
+  }
+
+  siteControls(V); civitaiDisable(V); bindChips(V);
+  document.getElementById('a-search').oninput = e => { STATE.search = e.target.value; render(); };
+  document.getElementById('a-exclude').oninput = e => { STATE.exclude = e.target.value; render(); };
+  document.getElementById('a-outfilter').oninput = e => { STATE.outFilter = e.target.value; render(); };
+  document.getElementById('a-sort').onchange = e => { STATE.sort = e.target.value; render(); };
+  document.getElementById('a-perpage').onchange = e => { STATE.perPage = +e.target.value; render(); };
+  document.getElementById('a-auto').onclick = autoStep;
+  document.getElementById('a-reset').onclick = resetCursor;
+  V.querySelectorAll('.a-mode button').forEach(modeUI);
+}
+
+/* ============ 变体 B:左栏控制台 ============ */
+function renderB(){
+  const V = document.getElementById('variantB');
+  const isC = STATE.site==='civitai';
+  V.innerHTML = `
+  <div class="b-wrap">
+    <aside class="b-side">
+      <div class="grp"><label>站点</label>
+        <div class="b-site">
+          <button data-site="danbooru" class="${STATE.site==='danbooru'?'active':''}">danbooru</button>
+          <button data-site="gelbooru" class="${STATE.site==='gelbooru'?'active':''}">gelbooru</button>
+          <button data-site="civitai" class="${STATE.site==='civitai'?'active':''}">civitai</button>
+        </div>
+      </div>
+      <div class="grp"><label>标签搜索</label><input type="text" data-search id="b-search" value="${STATE.search}"></div>
+      <div class="grp"><label>排除标签(不进结果)</label><input type="text" data-booru-only id="b-exclude" value="${STATE.exclude}"></div>
+      <div class="grp"><label>评级</label>
+        <div class="b-rating">
+          ${['g','s','q','e'].map(r=>`<label><input type="checkbox" data-r="${r}" ${STATE.rating.includes(r)?'checked':''}> ${RATING_LABEL[r]}(${r})</label>`).join('')}
+        </div>
+      </div>
+      <div class="grp"><label>排序</label>
+        <select id="b-sort"><option ${STATE.sort==='最新'?'selected':''}>最新</option><option ${STATE.sort==='评分'?'selected':''}>评分</option><option ${STATE.sort==='随机'?'selected':''}>随机</option></select>
+      </div>
+      <div class="grp"><label>每页</label>
+        <select id="b-perpage"><option ${STATE.perPage===20?'selected':''}>20</option><option ${STATE.perPage===40?'selected':''}>40</option><option ${STATE.perPage===60?'selected':''}>60</option></select>
+      </div>
+      <div class="grp"><label>输出过滤标签</label><input type="text" data-booru-only id="b-outfilter" value="${STATE.outFilter}"></div>
+      ${isC?'<span style="color:var(--yellow);font-size:11px">civitai:模型搜索,排除/输出过滤不适用</span>':''}
+      <button class="b-apply" onclick="STATE.search=document.getElementById('b-search').value;render()">重新搜索</button>
+    </aside>
+    <main class="b-main">
+      <div id="b-grid"></div>
+      <div class="b-float">
+        <span class="fdot" title="自动模式指示"></span>
+        <button data-mode="manual" ${STATE.mode==='manual'?'class="active"':''}>普通</button>
+        <button data-mode="auto" ${STATE.mode==='auto'?'class="active"':''}>自动</button>
+        <button data-mode="list" ${STATE.mode==='list'?'class="active"':''}>列表</button>
+        <button id="b-auto" title="游标前进">▶</button>
+        <button id="b-reset" title="游标归零">⟲</button>
+        <button id="b-listbtn">列表 ${STATE.list.length}</button>
+      </div>
+      <div class="b-drawer hidden" id="b-drawer"></div>
+    </main>
+  </div>
+  <div class="b-status"><span>${statusLine()}</span><span id="b-selinfo" style="margin-left:auto"></span></div>`;
+
+  const list = filtered();
+  const grid = document.getElementById('b-grid');
+  if (!list.length) grid.innerHTML = emptyHint('B');
+  else { grid.innerHTML = list.map(p=>thumbHTML(p,'bsel')).join(''); gridHandlers(grid,'bsel'); }
+
+  const sel = STATE.selected ? postById(STATE.selected) : null;
+  document.getElementById('b-selinfo').innerHTML = sel
+    ? `选中 #${sel.id} · 提示词 ${sel.tags.length} tags(滤 ${tokens(STATE.outFilter).filter(t=>sel.tags.includes(t)).length})`
+    : '未选中 — 悬停缩略图可加入列表';
+
+  siteControls(V); civitaiDisable(V);
+  document.getElementById('b-search').oninput = e => STATE.search = e.target.value;
+  document.getElementById('b-exclude').oninput = e => STATE.exclude = e.target.value;
+  document.getElementById('b-outfilter').oninput = e => STATE.outFilter = e.target.value;
+  document.getElementById('b-sort').onchange = e => { STATE.sort = e.target.value; render(); };
+  document.getElementById('b-perpage').onchange = e => { STATE.perPage = +e.target.value; render(); };
+  V.querySelectorAll('.b-rating input').forEach(cb => cb.onchange = () => {
+    const r = cb.dataset.r;
+    STATE.rating = cb.checked ? [...STATE.rating, r] : STATE.rating.filter(x=>x!==r);
+    render();
+  });
+  document.getElementById('b-auto').onclick = autoStep;
+  document.getElementById('b-reset').onclick = resetCursor;
+  V.querySelectorAll('.b-float [data-mode]').forEach(modeUI);
+  document.getElementById('b-listbtn').onclick = () => {
+    STATE.bDrawerOpen = !STATE.bDrawerOpen; renderB();
+  };
+  const drawer = document.getElementById('b-drawer');
+  if (STATE.bDrawerOpen) {
+    drawer.classList.remove('hidden');
+    drawer.innerHTML = `<h4>输出列表(循环输出)</h4>
+      ${STATE.list.length ? STATE.list.map(id=>{
+        const p = postById(id);
+        return `<div class="item"><span>#${id} · ${p.tags[0]}</span><span class="x" data-rm="${id}">✕</span></div>`;
+      }).join('') : '<div style="font-size:12px;color:var(--muted)">列表为空</div>'}
+      ${STATE.list.length ? '<button style="width:100%;margin-top:6px" id="b-clear">清空列表</button>' : ''}`;
+    drawer.querySelectorAll('.x').forEach(x => x.onclick = () => {
+      STATE.list = STATE.list.filter(i=>i!==+x.dataset.rm); render();
+    });
+    const clr = document.getElementById('b-clear');
+    if (clr) clr.onclick = () => { STATE.list = []; render(); };
+  }
+}
+
+/* ============ 变体 C:沉浸看图 ============ */
+function renderC(){
+  const V = document.getElementById('variantC');
+  const isC = STATE.site==='civitai';
+  V.innerHTML = `
+  <div class="c-top">
+    <select data-site-sel>
+      <option value="danbooru" ${!isC?'selected':''}>danbooru</option>
+      <option value="gelbooru">gelbooru</option>
+      <option value="civitai" ${isC?'selected':''}>civitai</option>
+    </select>
+    <input type="text" data-search id="c-search" value="${STATE.search}">
+    <button id="c-filterbtn">☰ 筛选</button>
+  </div>
+  <div class="c-panel ${STATE.cPanelOpen?'':'hidden'}">
+    <span style="color:var(--muted)">评级</span>${ratingChips()}
+    <select id="c-sort"><option ${STATE.sort==='最新'?'selected':''}>最新</option><option ${STATE.sort==='评分'?'selected':''}>评分</option><option ${STATE.sort==='随机'?'selected':''}>随机</option></select>
+    <span style="color:var(--muted)">每页</span>
+    <select id="c-perpage"><option ${STATE.perPage===20?'selected':''}>20</option><option ${STATE.perPage===40?'selected':''}>40</option><option ${STATE.perPage===60?'selected':''}>60</option></select>
+    <input type="text" data-booru-only id="c-exclude" style="flex:1" value="${STATE.exclude}" placeholder="排除标签…">
+    <input type="text" data-booru-only id="c-outfilter" style="flex:1" value="${STATE.outFilter}" placeholder="输出过滤标签…">
+    ${isC?'<span style="color:var(--yellow)">civitai:模型搜索,无标签体系</span>':''}
+  </div>
+  <div id="c-grid" style="position:relative"></div>
+  <div class="c-pill">
+    <span>${STATE.mode==='manual'?'普通':STATE.mode==='auto'?'自动':'列表'} · 游标 <b>${STATE.cursor}/${STATE.total}</b></span>
+    <button id="c-auto">▶</button>
+    <button id="c-reset">⟲</button>
+    <button id="c-listbtn">列表 ${STATE.list.length}</button>
+  </div>`;
+
+  const list = filtered();
+  const grid = document.getElementById('c-grid');
+  if (!list.length) grid.innerHTML = emptyHint('C');
+  else grid.innerHTML = list.map(p =>
+    `<div class="thumb ${STATE.selected===p.id?'sel':''} ${p.failed?'failed':''}" data-id="${p.id}" style="height:${p.h}px;background:linear-gradient(135deg,hsl(${(p.id*37)%360} 45% 34%),hsl(${((p.id*37)+70)%360} 42% 20%))">
+      <span class="rid r-${p.r}">${p.id}</span><span class="score">★${p.s}</span></div>`).join('');
+  grid.querySelectorAll('.thumb').forEach(t => t.onclick = () => openLightbox(+t.dataset.id));
+
+  siteControls(V); civitaiDisable(V); bindChips(V);
+  document.getElementById('c-search').oninput = e => STATE.search = e.target.value;
+  document.getElementById('c-exclude').oninput = e => STATE.exclude = e.target.value;
+  document.getElementById('c-outfilter').oninput = e => { STATE.outFilter = e.target.value; render(); };
+  document.getElementById('c-sort').onchange = e => { STATE.sort = e.target.value; render(); };
+  document.getElementById('c-perpage').onchange = e => { STATE.perPage = +e.target.value; render(); };
+  document.getElementById('c-filterbtn').onclick = () => { STATE.cPanelOpen = !STATE.cPanelOpen; render(); };
+  document.getElementById('c-auto').onclick = autoStep;
+  document.getElementById('c-reset').onclick = resetCursor;
+  document.getElementById('c-listbtn').onclick = () => openListModal();
+}
+
+function openLightbox(id){
+  const p = postById(id);
+  STATE.selected = id;
+  const lb = document.getElementById('c-lb');
+  const hue = (p.id*37)%360;
+  const filtered = tokens(STATE.outFilter);
+  lb.innerHTML = `
+  <div class="c-card">
+    <div class="c-img" style="height:100%;background:linear-gradient(160deg,hsl(${hue} 45% 36%),hsl(${(hue+70)%360} 42% 18%))"></div>
+    <div class="c-side">
+      <h3>#${p.id} · ${RATING_LABEL[p.r]} · ★${p.s}${p.failed?' · <span style="color:var(--red)">下载失败</span>':''}</h3>
+      <div><label>输出提示词(输出过滤已生效)</label>
+        <textarea readonly>${outputPrompt(p)}</textarea>
+        ${tokens(STATE.outFilter).filter(t=>p.tags.includes(t)).length?'<span class="c-note">已滤掉 '+tokens(STATE.outFilter).filter(t=>p.tags.includes(t)).length+' 个标签 — 点击标签可加入输出过滤</span>':''}
+      </div>
+      <div><label>全部标签(点击 = 加入输出过滤)</label>
+        <div class="c-tags">
+          ${p.tags.map(t=>`<span class="c-tag ${filtered.includes(t)?'filtered':''}" data-tag="${t}">${t}</span>`).join('')}
+        </div>
+      </div>
+      <div><label>元数据 JSON(保持原始,不受过滤影响)</label>
+        <div class="c-meta">{"id":${p.id},"rating":"${p.r}","score":${p.s},"tags":["${p.tags.join('","')}"],"raw":{…}}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="lb-tolist" ${STATE.list.includes(p.id)?'disabled':''}>＋加入列表</button>
+        <button id="lb-close" style="margin-left:auto">关闭 ✕</button>
+      </div>
+    </div>
+  </div>`;
+  lb.classList.remove('hidden');
+  lb.onclick = e => { if (e.target === lb) closeLightbox(); };
+  document.getElementById('lb-close').onclick = closeLightbox;
+  const tl = document.getElementById('lb-tolist');
+  if (tl) tl.onclick = () => { STATE.list.push(p.id); openLightbox(id); };
+  lb.querySelectorAll('.c-tag').forEach(ch => ch.onclick = () => {
+    if (ch.classList.contains('filtered')) return;
+    const f = new Set(tokens(STATE.outFilter)); f.add(ch.dataset.tag);
+    STATE.outFilter = [...f].join(' ');
+    openLightbox(id);
+  });
+}
+function closeLightbox(){ document.getElementById('c-lb').classList.add('hidden') }
+
+function openListModal(){
+  closeLightbox();
+  const lb = document.getElementById('c-lb');
+  lb.innerHTML = `
+  <div class="c-card" style="width:520px;display:block">
+    <div class="c-side">
+      <h3>输出列表(${STATE.list.length} 张 · 列表模式循环输出)</h3>
+      ${STATE.list.length ? STATE.list.map(id=>{
+        const p = postById(id);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0">
+          <div style="width:44px;height:44px;border-radius:6px;background:linear-gradient(135deg,hsl(${(id*37)%360} 45% 34%),hsl(${((id*37)+70)%360} 42% 20%))"></div>
+          <span style="flex:1">#${id} · ${p.tags.join(' ').slice(0,40)}</span>
+          <span class="x" data-rm="${id}" style="color:var(--red);cursor:pointer">✕</span></div>`;
+      }).join('') : '<div style="color:var(--muted)">列表为空 — 从大图点「＋加入列表」</div>'}
+      <div style="display:flex;gap:8px">
+        ${STATE.list.length?'<button id="lb-clear">清空列表</button>':''}
+        <button id="lb-close" style="margin-left:auto">关闭 ✕</button>
+      </div>
+    </div>
+  </div>`;
+  lb.classList.remove('hidden');
+  lb.onclick = e => { if (e.target === lb) closeLightbox(); };
+  document.getElementById('lb-close').onclick = closeLightbox;
+  const clr = document.getElementById('lb-clear');
+  if (clr) clr.onclick = () => { STATE.list = []; openListModal(); };
+  lb.querySelectorAll('.x').forEach(x => x.onclick = () => {
+    STATE.list = STATE.list.filter(i=>i!==+x.dataset.rm); openListModal();
+  });
+}
+
+/* ============ 变体切换器 ============ */
+function curVariant(){
+  const v = new URLSearchParams(location.search).get('variant');
+  return VARIANTS.find(x=>x.k===v) ? v : 'A';
+}
+function applyVariant(){
+  const v = curVariant();
+  document.querySelectorAll('.variant').forEach(el => el.style.display = 'none');
+  document.getElementById('variant'+v).style.display = 'block';
+  ({A:renderA, B:renderB, C:renderC}[v])();
+  const m = VARIANTS.find(x=>x.k===v);
+  document.getElementById('sw-name').textContent = `${m.k} · ${m.n}`;
+  document.getElementById('sw-name').style.color = {A:'var(--a)',B:'var(--b)',C:'var(--c)'}[v];
+}
+function goVariant(v){
+  const u = new URL(location);
+  u.searchParams.set('variant', v);
+  history.replaceState(null, '', u);
+  applyVariant();
+}
+document.getElementById('sw-prev').onclick = () => {
+  const i = VARIANTS.findIndex(x=>x.k===curVariant());
+  goVariant(VARIANTS[(i+2)%3].k);
+};
+document.getElementById('sw-next').onclick = () => {
+  const i = VARIANTS.findIndex(x=>x.k===curVariant());
+  goVariant(VARIANTS[(i+1)%3].k);
+};
+document.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag==='input' || tag==='textarea' || tag==='select') return;
+  const i = VARIANTS.findIndex(x=>x.k===curVariant());
+  if (e.key==='ArrowLeft')  goVariant(VARIANTS[(i+2)%3].k);
+  if (e.key==='ArrowRight') goVariant(VARIANTS[(i+1)%3].k);
+  if (e.key==='Escape') closeLightbox();
+});
+
+applyVariant();
+</script>
+</body>
+</html>
