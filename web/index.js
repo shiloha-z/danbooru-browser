@@ -124,10 +124,10 @@ class BrowserPanel {
           <option disabled>civitai (后续版本)</option>
         </select>
         <div class="dbb-searchwrap">
-          <input type="text" id="dbb-search" placeholder="标签搜索(空格分隔)…">
+          <input type="text" id="dbb-search" placeholder="标签搜索(逗号分隔)…">
           <div class="dbb-ac" id="dbb-ac"></div>
         </div>
-        <input type="text" id="dbb-exclude" placeholder="排除标签(空格分隔)…" style="width:110px" title="含任一排除标签的帖子不出现">
+        <input type="text" id="dbb-exclude" placeholder="排除标签(逗号分隔)…" style="width:110px" title="含任一排除标签的帖子不出现">
         <button class="primary" id="dbb-search-btn">搜索</button>
       </div>
       <div class="dbb-row">
@@ -256,7 +256,7 @@ class BrowserPanel {
             div.textContent = t;
             div.onmousedown = () => {
               // 补全语义:替换正在输入的最后一段,而不是追加
-              const words = input.value.trim().split(/\s+/).filter(Boolean);
+              const words = input.value.trim().split(/[,\s]+/).filter(Boolean);
               if (words.length) words[words.length - 1] = t;
               else words.push(t);
               input.value = words.join(" ");
@@ -276,12 +276,12 @@ class BrowserPanel {
   addTagToSearch(tag) {
     const input = this.el.querySelector("#dbb-search");
     const cur = input.value.trim();
-    input.value = cur ? `${cur} ${tag}` : tag;
+    input.value = cur ? `${cur}, ${tag}` : tag;
   }
 
   readConditions() {
-    const tags = this.el.querySelector("#dbb-search").value.trim().split(/\s+/).filter(Boolean);
-    const excludeTags = this.el.querySelector("#dbb-exclude").value.trim().split(/\s+/).filter(Boolean);
+    const tags = this.el.querySelector("#dbb-search").value.trim().split(/[,\s]+/).filter(Boolean);
+    const excludeTags = this.el.querySelector("#dbb-exclude").value.trim().split(/[,\s]+/).filter(Boolean);
     const ratings = [...this.el.querySelectorAll(".dbb-chip.on")].map((c) => c.dataset.r);
     return {
       site: this.el.querySelector("#dbb-site").value,
@@ -294,8 +294,8 @@ class BrowserPanel {
   }
 
   syncControls(c) {
-    this.el.querySelector("#dbb-search").value = (c.tags || []).join(" ");
-    this.el.querySelector("#dbb-exclude").value = (c.exclude_tags || []).join(" ");
+    this.el.querySelector("#dbb-search").value = (c.tags || []).join(", ");
+    this.el.querySelector("#dbb-exclude").value = (c.exclude_tags || []).join(", ");
     this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
       chip.classList.toggle("on", (c.ratings || ALL_RATINGS).includes(chip.dataset.r));
     });
