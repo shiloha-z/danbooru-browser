@@ -271,24 +271,16 @@ class Session:
         return None
 
     def select(self, post_id: int) -> None:
-        """选中一张已加载的帖子;未加载则 StateError。游标同步到该帖(自动模式从这继续)。"""
+        """选中一张已加载的帖子;未加载则 StateError。选中只是标记,不移动游标。"""
         self._browser.require_loaded(self.state, post_id)
         self.state.selection = post_id
-        if self.state.mode != "list":  # 列表模式的游标是列表位置,与选中无关
-            index = self._post_index(post_id)
-            if index is not None:
-                self.state.cursor = index
 
     def set_mode(self, mode: str) -> None:
-        """切换输出模式;自动游标挪到选中帖,列表游标归零。"""
+        """切换输出模式;列表游标归零。选中不改变游标(重置游标才把游标移到选中帖)。"""
         if mode not in ("manual", "auto", "list"):
             raise StateError(f"未知模式: {mode}")
         self.state.mode = mode
-        if mode == "auto" and self.state.selection is not None:
-            index = self._post_index(self.state.selection)
-            if index is not None:
-                self.state.cursor = index
-        elif mode == "list":
+        if mode == "list":
             self.state.cursor = 0
 
     def add_to_list(self, post_id: int) -> None:

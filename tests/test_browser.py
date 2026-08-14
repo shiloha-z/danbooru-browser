@@ -189,7 +189,7 @@ class TestAutoMode:
     """自动模式:游标推进、自动翻页、重选重启、重置(issue #8)。"""
 
     def build_auto_state(self, http, post_ids=(1, 2, 3), selection=None):
-        """真实流程:浏览 → 选中 → 点「自动」(set_mode 把游标挪到选中帖)。"""
+        """真实流程:浏览 → 选中 → 点「自动」→ 重置游标(选中不动游标,重置才移)。"""
         posts = [make_post(i) for i in post_ids]
         for p in posts:
             http.bytes_responses[p.file_url] = IMAGE_BYTES
@@ -200,9 +200,11 @@ class TestAutoMode:
             selection=selection,
         )))
         session.set_mode("auto")
+        session.reset_cursor()
         return session.serialize()
 
-    def test_set_mode_auto_points_cursor_at_selection(self):
+    def test_set_mode_auto_does_not_move_cursor(self):
+        # 选中只是标记:进入自动不改变游标;重置游标才移到选中帖
         http = FakeHttp()
         browser = build_browser(http)
         session = browser.restore(session_to_json(SessionState(
@@ -212,7 +214,9 @@ class TestAutoMode:
         )))
         session.set_mode("auto")
         assert session.state.mode == "auto"
-        assert session.state.cursor == 1  # 选中帖 2 的索引
+        assert session.state.cursor == 0  # 游标保持,不跳选中
+        session.reset_cursor()
+        assert session.state.cursor == 1  # 重置后才到选中帖 2 的索引
 
     def test_auto_advances_cursor_each_call(self):
         http = FakeHttp()
@@ -254,14 +258,15 @@ class TestAutoMode:
         assert out.kind is OutputKind.EMPTY
         assert "末尾" in (out.reason or "")
 
-    def test_reselect_moves_cursor_to_post(self):
+    def test_reselect_does_not_move_cursor(self):
+        # 重选只是标记;重置游标才把游标移到选中帖
         http = FakeHttp()
         browser = build_browser(http)
         session = browser.restore(self.build_auto_state(http, selection=3))
-        session.select(1)  # 重选 1 → 游标跳回
-        assert session.state.cursor == 0
-        out, _ = browser.next_output(session.serialize())
-        assert out.post.id == 1
+        session.select(1)  # 重选 1
+        assert session.state.cursor == 2  # 游标不动(仍在 3 的索引)
+        session.reset_cursor()
+        assert session.state.cursor == 0  # 重置后到 1 的索引
 
     def test_reset_cursor_returns_to_selection(self):
         http = FakeHttp()
