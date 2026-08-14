@@ -134,9 +134,9 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
             }
         )
 
-    @server.routes.post("/danbooru_browser/mode")
-    async def mode(request: web.Request) -> web.Response:
-        """模式动作:set_mode(manual/auto/list)或 reset_cursor;返回新会话(ADR-0003)。"""
+    @server.routes.post("/danbooru_browser/action")
+    async def action(request: web.Request) -> web.Response:
+        """面板动作:模式切换 / 游标 / 列表操作;返回新会话(ADR-0003)。"""
         if not _local_origin_ok(request):
             return web.json_response({"error": "非法的请求来源"}, status=403)
         try:
@@ -157,6 +157,14 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
                 session.set_mode(new_mode)
             elif action == "reset_cursor":
                 session.reset_cursor()
+            elif action == "add_to_list":
+                session.add_to_list(int(body.get("post_id")))
+            elif action == "insert_to_list":
+                session.insert_to_list(int(body.get("post_id")), int(body.get("index", 0)))
+            elif action == "remove_from_list":
+                session.remove_from_list(int(body.get("post_id")))
+            elif action == "clear_list":
+                session.clear_list()
             else:
                 return web.json_response({"error": "未知动作"}, status=400)
         except (StateError, KeyError, ValueError, TypeError) as e:

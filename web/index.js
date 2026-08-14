@@ -48,7 +48,7 @@ const PANEL_CSS = `
 .dbb-grid .thumb .badge{position:absolute;top:3px;left:3px;font-size:9px;border-radius:3px;padding:0 4px;color:#fff}
 .dbb-empty{color:#8a8a94;text-align:center;padding:34px 10px;grid-column:1/-1}
 .dbb-empty .big{font-size:26px;margin-bottom:6px}
-.dbb-footer{min-height:34px;border:1px dashed #3a3a42;border-radius:5px;padding:5px 8px;font-size:11px;color:#8a8a94;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dbb-footer{min-height:34px;border:1px dashed #3a3a42;border-radius:5px;padding:4px 8px;font-size:11px;color:#8a8a94;display:flex;gap:6px;align-items:center}
 .dbb-footer b{color:#d8d8de}
 .dbb-lightbox{position:fixed;inset:0;background:rgba(10,10,14,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .dbb-lightbox .dbb-lb-bar{display:flex;gap:8px}
@@ -82,11 +82,11 @@ async function apiPage(stateJson, page, proxy) {
   return resp.json();
 }
 
-async function apiMode(stateJson, action, mode, proxy) {
-  const resp = await fetch(`${API_BASE}/mode`, {
+async function apiAction(stateJson, action, mode, proxy, postId, index) {
+  const resp = await fetch(`${API_BASE}/action`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state_json: stateJson, action, mode, proxy }),
+    body: JSON.stringify({ state_json: stateJson, action, mode, post_id: postId, index, proxy }),
   });
   return resp.json();
 }
@@ -134,10 +134,11 @@ class BrowserPanel {
         <div class="dbb-mode">
           <button id="dbb-mode-manual" class="on">普通</button>
           <button id="dbb-mode-auto">自动</button>
-          <button disabled title="后续版本">列表</button>
+          <button id="dbb-mode-list">列表</button>
         </div>
-        <button disabled title="T5 开放">▶ 自动</button>
+        <button disabled title="后续版本">▶ 自动</button>
         <button id="dbb-reset-cursor" disabled>⟲ 重置游标</button>
+        <button id="dbb-list-clear" title="清空输出列表">清空列表</button>
         <input type="text" id="dbb-outfilter" disabled style="flex:1" title="T4 开放" placeholder="输出过滤标签(后续版本)">
       </div>
       <div class="dbb-row">
@@ -163,7 +164,12 @@ class BrowserPanel {
         <button id="dbb-next" disabled>下一页 ›</button>
       </div>
       <div class="dbb-grid" id="dbb-grid"></div>
-      <div class="dbb-footer" id="dbb-footer">未选中 — 点击缩略图选中;执行队列输出所选帖子</div>
+      <div class="dbb-footer" id="dbb-footer">
+        <span id="dbb-footer-text" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">未选中 — 点击缩略图选中;执行队列输出所选帖子</span>
+        <input type="text" id="dbb-list-pos" value="1" style="width:34px;text-align:center" title="插入位置(1 起)">
+        <button id="dbb-list-insert" title="把选中帖插入列表指定位置">插入</button>
+        <button id="dbb-list-toggle">加入列表</button>
+      </div>
     `;
     el.querySelector("#dbb-search-btn").onclick = () => this.doSearch();
     this.page = 1;
@@ -179,10 +185,25 @@ class BrowserPanel {
     });
     this.modeManualBtn = el.querySelector("#dbb-mode-manual");
     this.modeAutoBtn = el.querySelector("#dbb-mode-auto");
+    this.modeListBtn = el.querySelector("#dbb-mode-list");
     this.resetBtn = el.querySelector("#dbb-reset-cursor");
+    this.listToggleBtn = el.querySelector("#dbb-list-toggle");
+    this.listInsertBtn = el.querySelector("#dbb-list-insert");
+    this.listClearBtn = el.querySelector("#dbb-list-clear");
     this.modeManualBtn.onclick = () => this.setMode("manual");
     this.modeAutoBtn.onclick = () => this.setMode("auto");
+    this.modeListBtn.onclick = () => this.setMode("list");
     this.resetBtn.onclick = () => this.modeAction("reset_cursor");
+    this.listToggleBtn.onclick = () => this.toggleListForSelection();
+    this.listInsertBtn.onclick = () => {
+      const state = parseWidget(this.widget?.value);
+      const sel = state?.selection;
+      if (sel == null) return this.setError("先选中一张帖子再插入");
+      if ((state?.outlist || []).includes(sel)) return this.setError("该帖已在列表中");
+      const pos = Number(el.querySelector("#dbb-list-pos").value.trim());
+      this.listAction("insert_to_list", sel, Number.isInteger(pos) && pos >= 1 ? pos - 1 : 0);
+    };
+    this.listClearBtn.onclick = () => this.listAction("clear_list");
     el.querySelectorAll(".dbb-chip").forEach((c) => {
       c.onclick = () => {
         // 至少保留一个评级:全关 = 不过滤,语义不清
@@ -322,7 +343,7 @@ class BrowserPanel {
   async modeAction(action, mode) {
     this.setError("");
     try {
-      const res = await apiMode(this.widget?.value || "", action, mode, this.proxyWidget?.value || "");
+      const res = await apiAction(this.widget?.value || "", action, mode, this.proxyWidget?.value || "");
       if (res.error) {
         this.setError(res.error);
         return;
@@ -333,17 +354,43 @@ class BrowserPanel {
     }
   }
 
+  async listAction(action, postId, index) {
+    this.setError("");
+    try {
+      const res = await apiAction(
+        this.widget?.value || "", action, undefined, this.proxyWidget?.value || "", postId, index,
+      );
+      if (res.error) {
+        this.setError(res.error);
+        return;
+      }
+      this.applyStateOnly(res.state_json);
+    } catch (e) {
+      this.setError(`列表操作失败: ${e.message || e}`);
+    }
+  }
+
+  toggleListForSelection() {
+    const state = parseWidget(this.widget?.value);
+    const sel = state?.selection;
+    if (sel == null) return this.setError("先选中一张帖子再操作列表");
+    const inList = (state?.outlist || []).includes(sel);
+    this.listAction(inList ? "remove_from_list" : "add_to_list", sel);
+  }
+
   applyStateOnly(stateJson) {
     this.widget.value = stateJson;
     const state = parseWidget(stateJson);
     this.updateMode(state?.mode);
     this.updateStatus(state);
+    this.updateListToggle(state?.selection ?? null);
   }
 
   updateMode(mode) {
     const m = mode || "manual";
     this.modeManualBtn.classList.toggle("on", m === "manual");
     this.modeAutoBtn.classList.toggle("on", m === "auto");
+    this.modeListBtn.classList.toggle("on", m === "list");
     this.resetBtn.disabled = m !== "auto";
   }
 
@@ -478,8 +525,8 @@ class BrowserPanel {
     const state = parseWidget(this.widget?.value);
     if (!state || !state.pages) return;
     state.selection = state.selection === id ? null : id;
-    if (state.selection != null) {
-      // 与后端 select() 语义一致:游标同步到选中帖(自动模式从这继续)
+    if (state.selection != null && state.mode !== "list") {
+      // 与后端 select() 语义一致:游标同步到选中帖(自动模式从这继续);列表模式游标是列表位置
       const idx = (state.pages || []).flatMap((pg) => pg.posts).findIndex((p) => p.id === id);
       if (idx >= 0) state.cursor = idx;
     }
@@ -492,25 +539,36 @@ class BrowserPanel {
   }
 
   renderFooter(selId) {
+    const text = this.el.querySelector("#dbb-footer-text");
     const state = parseWidget(this.widget?.value);
     if (!state || selId == null) {
-      this.footer.textContent = "未选中 — 点击缩略图选中;执行队列输出所选帖子";
+      text.textContent = "未选中 — 点击缩略图选中;执行队列输出所选帖子";
+      this.updateListToggle(null);
       return;
     }
     const post = this.findPost(state, selId);
-    this.footer.innerHTML = post
+    text.innerHTML = post
       ? `已选 <b>#${post.id}</b> · 提示词:${post.tags.join(", ")}`
       : `已选 <b>#${selId}</b>`;
+    this.updateListToggle(selId);
+  }
+
+  updateListToggle(selId) {
+    const state = parseWidget(this.widget?.value);
+    const inList = selId != null && (state?.outlist || []).includes(selId);
+    this.listToggleBtn.textContent = inList ? "从列表移除" : "加入列表";
   }
 
   updateStatus(state) {
     const modeLabel = { manual: "普通", auto: "自动", list: "列表" }[state?.mode] || "普通";
     const sel = state?.selection != null ? `#${state.selection}` : "—";
-    // 手动模式:游标是当前页内的位置,只统计当前页;自动模式:游标跨页,统计全部已加载
+    // 手动:游标是当前页内的位置;自动:游标跨全部已加载;列表:游标对列表长度
     const curPage = (state?.pages || []).find((pg) => pg.number === (state?.page || 1));
     const total = (state?.pages || []).reduce((n, pg) => n + pg.posts.length, 0);
     const nPosts = state?.mode === "auto" ? total : (curPage ? curPage.posts.length : 0);
-    const cur = state?.cursor != null ? `${state.cursor}/${nPosts}` : "—";
+    const cur = state?.cursor != null
+      ? (state?.mode === "list" ? `${state.cursor}/${state.outlist.length}` : `${state.cursor}/${nPosts}`)
+      : "—";
     const nList = state?.outlist?.length || 0;
     this.statusText.innerHTML = `${modeLabel} · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>0</b>`;
   }

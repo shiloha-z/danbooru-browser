@@ -56,6 +56,9 @@ class Browser:
         if state.mode == "auto":
             output, new_state = self._auto_output(state)
             return output, session_to_json(new_state)
+        if state.mode == "list":
+            output, new_state = self._list_output(state)
+            return output, session_to_json(new_state)
         if state.selection is None:
             return Output(OutputKind.EMPTY, reason="未选中帖子:在面板中点击一张帖子后执行"), state_json
         post = self.require_loaded(state, state.selection, "(工作流可能被编辑);请在面板中重新浏览")
@@ -76,6 +79,26 @@ class Browser:
             OutputKind.IMAGE, post=post, image=image,
             prompt=self.derive_prompt(post), metadata=build_metadata(post),
         )
+
+    def _list_output(self, state: SessionState) -> tuple[Output, SessionState]:
+        """列表模式:输出列表中下一张 → 成功输出后游标 +1,末尾回绕无限循环。
+
+        推进语义与自动模式一致:仅成功输出(IMAGE)才消耗;坏帖(动画/下载失败/
+        不在已加载结果)报错不推进,由用户移除(自动/列表的跳过语义在 T9)。"""
+        if not state.outlist:
+            return Output(OutputKind.EMPTY, reason="列表为空:先在面板中加入帖子"), state
+        if state.cursor < 0 or state.cursor >= len(state.outlist):
+            state.cursor = 0  # 无限循环
+        post_id = state.outlist[state.cursor]
+        post = state.post(post_id)
+        if post is None:
+            return Output(
+                OutputKind.EMPTY, reason=f"列表中的帖子 #{post_id} 不在已加载结果中,请重新加入或移除"
+            ), state
+        output = self._post_output(state, post)
+        if output.kind is OutputKind.IMAGE:
+            state.cursor += 1
+        return output, state
 
     def _auto_output(self, state: SessionState) -> tuple[Output, SessionState]:
         """自动模式:输出游标帖 → 游标 +1;游标越过已加载末尾时自动拉下一页续上。"""
@@ -203,12 +226,13 @@ class Session:
         """选中一张已加载的帖子;未加载则 StateError。游标同步到该帖(自动模式从这继续)。"""
         self._browser.require_loaded(self.state, post_id)
         self.state.selection = post_id
-        index = self._post_index(post_id)
-        if index is not None:
-            self.state.cursor = index
+        if self.state.mode != "list":  # 列表模式的游标是列表位置,与选中无关
+            index = self._post_index(post_id)
+            if index is not None:
+                self.state.cursor = index
 
     def set_mode(self, mode: str) -> None:
-        """切换输出模式;进入自动时游标挪到选中帖(自动起点)。"""
+        """切换输出模式;自动游标挪到选中帖,列表游标归零。"""
         if mode not in ("manual", "auto", "list"):
             raise StateError(f"未知模式: {mode}")
         self.state.mode = mode
@@ -216,9 +240,35 @@ class Session:
             index = self._post_index(self.state.selection)
             if index is not None:
                 self.state.cursor = index
+        elif mode == "list":
+            self.state.cursor = 0
+
+    def add_to_list(self, post_id: int) -> None:
+        """加入输出列表(去重;仅限已加载帖子)。"""
+        self._browser.require_loaded(self.state, post_id)
+        if post_id not in self.state.outlist:
+            self.state.outlist.append(post_id)
+
+    def insert_to_list(self, post_id: int, index: int) -> None:
+        """插入指定位置(去重;index 越界钳制到末尾)。"""
+        self._browser.require_loaded(self.state, post_id)
+        if post_id in self.state.outlist:
+            return
+        index = max(0, min(index, len(self.state.outlist)))
+        self.state.outlist.insert(index, post_id)
+
+    def remove_from_list(self, post_id: int) -> None:
+        if post_id in self.state.outlist:
+            self.state.outlist.remove(post_id)
+
+    def clear_list(self) -> None:
+        self.state.outlist.clear()
 
     def reset_cursor(self) -> None:
-        """回到自动起点:选中帖(无选中则列表开头)。"""
+        """回到起点:自动模式 = 选中帖;列表模式 = 列表开头;无选中则开头。"""
+        if self.state.mode == "list":
+            self.state.cursor = 0
+            return
         if self.state.selection is not None:
             index = self._post_index(self.state.selection)
             if index is not None:

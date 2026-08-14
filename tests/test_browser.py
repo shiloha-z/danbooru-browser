@@ -300,6 +300,108 @@ class TestAutoMode:
         assert out.kind is OutputKind.EMPTY  # 拉取上限后停止,不无限循环
 
 
+class TestListMode:
+    """列表模式:策展列表操作 + 无限循环(issue #9)。"""
+
+    def build_list_state(self, http, post_ids=(1, 2, 3), outlist=None):
+        posts = [make_post(i) for i in post_ids]
+        for p in posts:
+            http.bytes_responses[p.file_url] = IMAGE_BYTES
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=posts)],
+            outlist=list(outlist or []),
+        )
+        session = build_browser(http).restore(session_to_json(state))
+        session.set_mode("list")
+        return session
+
+    def test_add_and_remove_from_list(self):
+        http = FakeHttp()
+        session = self.build_list_state(http)
+        session.add_to_list(2)
+        session.add_to_list(1)
+        assert session.state.outlist == [2, 1]
+        session.add_to_list(2)  # 去重:已存在则不重复加入
+        assert session.state.outlist == [2, 1]
+        session.remove_from_list(2)
+        assert session.state.outlist == [1]
+        with pytest.raises(StateError):
+            session.add_to_list(999)  # 未加载帖子校验
+
+    def test_insert_at_position(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, post_ids=(1, 2, 3, 4), outlist=[1, 3])
+        session.insert_to_list(2, index=1)
+        assert session.state.outlist == [1, 2, 3]
+        session.insert_to_list(4, index=99)  # 越界钳制到末尾
+        assert session.state.outlist == [1, 2, 3, 4]
+
+    def test_clear_list(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[1, 2])
+        session.clear_list()
+        assert session.state.outlist == []
+
+    def test_list_mode_cycles_infinitely(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[2, 1])
+        browser = build_browser(http)
+        out1, s1 = browser.next_output(session.serialize())
+        assert out1.kind is OutputKind.IMAGE and out1.post.id == 2  # 列表顺序输出
+        assert browser.restore(s1).state.cursor == 1
+        out2, s2 = browser.next_output(s1)
+        assert out2.post.id == 1
+        out3, s3 = browser.next_output(s2)  # 末尾回绕 → 无限循环
+        assert out3.post.id == 2
+        assert browser.restore(s3).state.cursor == 1
+
+    def test_list_mode_empty_list(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[])
+        out, _ = build_browser(http).next_output(session.serialize())
+        assert out.kind is OutputKind.EMPTY
+        assert "列表为空" in (out.reason or "")
+
+    def test_list_post_not_loaded_reports_clearly_without_advance(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[999])  # 帖子不在已加载页
+        browser = build_browser(http)
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.EMPTY
+        assert "999" in (out.reason or "")
+        assert browser.restore(s).state.cursor == 0  # 失败不消耗:坏帖由用户移除(跳过语义在 T9)
+
+    def test_list_mode_select_does_not_move_cursor(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[2, 1])
+        session.select(2)  # 列表模式下选中不扰动列表游标
+        assert session.state.cursor == 0
+
+    def test_reset_cursor_in_list_mode_goes_to_list_start(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[2, 1])
+        session.state.cursor = 1
+        session.reset_cursor()
+        assert session.state.cursor == 0
+
+    def test_set_mode_list_resets_cursor(self):
+        http = FakeHttp()
+        session = self.build_list_state(http, outlist=[2, 1])
+        session.state.cursor = 7  # 模拟乱游标
+        session.set_mode("list")
+        assert session.state.cursor == 0
+
+    def test_outlist_serializes_and_survives_search_reset(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(9).raw)]
+        browser = build_browser(http)
+        session = self.build_list_state(http, outlist=[1, 2])
+        session.search(SearchConditions(site="danbooru"))  # 筛选变更重置
+        assert session.state.outlist == [1, 2]  # 显式策展不因筛选变化而丢
+        assert session_from_json(session.serialize()).outlist == [1, 2]
+
+
 class TestPagination:
     def test_goto_page_fetches_page_and_accumulates(self):
         http = FakeHttp()
