@@ -49,26 +49,57 @@ class Browser:
     # ---------- 执行器入口 ----------
 
     def next_output(self, state_json: str) -> tuple[Output, str]:
-        """解析会话 → 解析选中项 → 取图 → 派生提示词 → 输出。手动模式不改状态。"""
+        """解析会话 → 按模式推进 → 输出。手动模式不改状态;自动模式返回推进后的状态。"""
         state = session_from_json(state_json)
         if state.conditions is None:
             return Output(OutputKind.EMPTY, reason="未浏览:先在面板中浏览并选中一张帖子"), state_json
+        if state.mode == "auto":
+            output, new_state = self._auto_output(state)
+            return output, session_to_json(new_state)
         if state.selection is None:
             return Output(OutputKind.EMPTY, reason="未选中帖子:在面板中点击一张帖子后执行"), state_json
         post = self.require_loaded(state, state.selection, "(工作流可能被编辑);请在面板中重新浏览")
+        return self._post_output(state, post), state_json
+
+    def _post_output(self, state: SessionState, post: Post) -> Output:
+        """取图 → 派生提示词 → 组装输出(手动与自动共用尾部)。"""
         site = self.site(state.conditions.site)
         if post.animated:
             return Output(OutputKind.ANIMATED, post=post,
-                          reason="帖子是动画(webm/gif),暂不支持输出"), state_json
+                          reason="帖子是动画(webm/gif),暂不支持输出")
         try:
             image = self._fetch_image(site, post)
         except TransportError as e:
             return Output(OutputKind.FAILED, post=post,
-                          reason=f"下载失败: {post.file_url} ({e})"), state_json
+                          reason=f"下载失败: {post.file_url} ({e})")
         return Output(
             OutputKind.IMAGE, post=post, image=image,
             prompt=self.derive_prompt(post), metadata=build_metadata(post),
-        ), state_json
+        )
+
+    def _auto_output(self, state: SessionState) -> tuple[Output, SessionState]:
+        """自动模式:输出游标帖 → 游标 +1;游标越过已加载末尾时自动拉下一页续上。"""
+        if state.cursor < 0:  # 防御篡改的会话 JSON
+            state.cursor = 0
+        posts = state.loaded_posts()
+        fetches = 0
+        while state.cursor >= len(posts):
+            fetches += 1
+            if fetches > 5:  # 防御性上限:站点忽略页码时避免疯狂拉取
+                return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
+            next_page = max((pg.number for pg in state.pages), default=0) + 1
+            site = self.site(state.conditions.site)
+            try:
+                result = site.search(state.conditions, page=next_page)
+            except TransportError as e:
+                return Output(OutputKind.FAILED, reason=f"自动模式翻页失败: {e}"), state
+            if not result.posts:
+                return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
+            state.pages.append(Page(number=next_page, posts=list(result.posts)))
+            posts = state.loaded_posts()
+        post = posts[state.cursor]
+        state.cursor += 1
+        return self._post_output(state, post), state
 
     # ---------- 面板操作 ----------
 
@@ -133,6 +164,7 @@ class Session:
             selection=prev.selection,
             outlist=self.state.outlist,
             page=1,
+            mode=self.state.mode,
         )
         return result
 
@@ -156,13 +188,43 @@ class Session:
             selection=kept,
             outlist=self.state.outlist,
             page=page,
+            mode=self.state.mode,
         )
         return result
 
+    def _post_index(self, post_id: int) -> int | None:
+        posts = self.state.loaded_posts()
+        for i, p in enumerate(posts):
+            if p.id == post_id:
+                return i
+        return None
+
     def select(self, post_id: int) -> None:
-        """选中一张已加载的帖子;未加载则 StateError(校验语义,面板与执行共用)。"""
+        """选中一张已加载的帖子;未加载则 StateError。游标同步到该帖(自动模式从这继续)。"""
         self._browser.require_loaded(self.state, post_id)
         self.state.selection = post_id
+        index = self._post_index(post_id)
+        if index is not None:
+            self.state.cursor = index
+
+    def set_mode(self, mode: str) -> None:
+        """切换输出模式;进入自动时游标挪到选中帖(自动起点)。"""
+        if mode not in ("manual", "auto", "list"):
+            raise StateError(f"未知模式: {mode}")
+        self.state.mode = mode
+        if mode == "auto" and self.state.selection is not None:
+            index = self._post_index(self.state.selection)
+            if index is not None:
+                self.state.cursor = index
+
+    def reset_cursor(self) -> None:
+        """回到自动起点:选中帖(无选中则列表开头)。"""
+        if self.state.selection is not None:
+            index = self._post_index(self.state.selection)
+            if index is not None:
+                self.state.cursor = index
+                return
+        self.state.cursor = 0
 
     def serialize(self) -> str:
         return session_to_json(self.state)

@@ -82,6 +82,15 @@ async function apiPage(stateJson, page, proxy) {
   return resp.json();
 }
 
+async function apiMode(stateJson, action, mode, proxy) {
+  const resp = await fetch(`${API_BASE}/mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state_json: stateJson, action, mode, proxy }),
+  });
+  return resp.json();
+}
+
 function parseWidget(json) {
   if (!json) return null;
   try {
@@ -123,12 +132,12 @@ class BrowserPanel {
       </div>
       <div class="dbb-row">
         <div class="dbb-mode">
-          <button class="on" disabled>普通</button>
-          <button disabled title="后续版本">自动</button>
+          <button id="dbb-mode-manual" class="on">普通</button>
+          <button id="dbb-mode-auto">自动</button>
           <button disabled title="后续版本">列表</button>
         </div>
-        <button disabled title="后续版本">▶ 自动</button>
-        <button disabled title="后续版本">⟲ 重置游标</button>
+        <button disabled title="T5 开放">▶ 自动</button>
+        <button id="dbb-reset-cursor" disabled>⟲ 重置游标</button>
         <input type="text" id="dbb-outfilter" disabled style="flex:1" title="T4 开放" placeholder="输出过滤标签(后续版本)">
       </div>
       <div class="dbb-row">
@@ -168,6 +177,12 @@ class BrowserPanel {
     this.pageInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.jumpToPage();
     });
+    this.modeManualBtn = el.querySelector("#dbb-mode-manual");
+    this.modeAutoBtn = el.querySelector("#dbb-mode-auto");
+    this.resetBtn = el.querySelector("#dbb-reset-cursor");
+    this.modeManualBtn.onclick = () => this.setMode("manual");
+    this.modeAutoBtn.onclick = () => this.setMode("auto");
+    this.resetBtn.onclick = () => this.modeAction("reset_cursor");
     el.querySelectorAll(".dbb-chip").forEach((c) => {
       c.onclick = () => {
         // 至少保留一个评级:全关 = 不过滤,语义不清
@@ -300,6 +315,38 @@ class BrowserPanel {
     this.gotoPage(n);
   }
 
+  setMode(mode) {
+    this.modeAction("set_mode", mode);
+  }
+
+  async modeAction(action, mode) {
+    this.setError("");
+    try {
+      const res = await apiMode(this.widget?.value || "", action, mode, this.proxyWidget?.value || "");
+      if (res.error) {
+        this.setError(res.error);
+        return;
+      }
+      this.applyStateOnly(res.state_json);
+    } catch (e) {
+      this.setError(`模式操作失败: ${e.message || e}`);
+    }
+  }
+
+  applyStateOnly(stateJson) {
+    this.widget.value = stateJson;
+    const state = parseWidget(stateJson);
+    this.updateMode(state?.mode);
+    this.updateStatus(state);
+  }
+
+  updateMode(mode) {
+    const m = mode || "manual";
+    this.modeManualBtn.classList.toggle("on", m === "manual");
+    this.modeAutoBtn.classList.toggle("on", m === "auto");
+    this.resetBtn.disabled = m !== "auto";
+  }
+
   applyResult(res) {
     this.widget.value = res.state_json;
     this.page = res.page;
@@ -308,6 +355,7 @@ class BrowserPanel {
     this.updateNavButtons();
     this.renderGrid(res.posts);
     const state = parseWidget(res.state_json);
+    this.updateMode(state?.mode);
     this.updateStatus(state);
     this.renderFooter(state?.selection ?? null);
     // 后端保留的选中项要重新画上蓝色描边(ADR-0002)
@@ -430,6 +478,11 @@ class BrowserPanel {
     const state = parseWidget(this.widget?.value);
     if (!state || !state.pages) return;
     state.selection = state.selection === id ? null : id;
+    if (state.selection != null) {
+      // 与后端 select() 语义一致:游标同步到选中帖(自动模式从这继续)
+      const idx = (state.pages || []).flatMap((pg) => pg.posts).findIndex((p) => p.id === id);
+      if (idx >= 0) state.cursor = idx;
+    }
     this.widget.value = JSON.stringify(state);
     this.grid.querySelectorAll(".thumb").forEach((t) => {
       t.classList.toggle("sel", +t.dataset.id === state.selection);
@@ -451,13 +504,15 @@ class BrowserPanel {
   }
 
   updateStatus(state) {
+    const modeLabel = { manual: "普通", auto: "自动", list: "列表" }[state?.mode] || "普通";
     const sel = state?.selection != null ? `#${state.selection}` : "—";
-    // 游标是当前页内的位置:只统计当前页帖子数,翻页后与显示一致
+    // 手动模式:游标是当前页内的位置,只统计当前页;自动模式:游标跨页,统计全部已加载
     const curPage = (state?.pages || []).find((pg) => pg.number === (state?.page || 1));
-    const nPosts = curPage ? curPage.posts.length : 0;
+    const total = (state?.pages || []).reduce((n, pg) => n + pg.posts.length, 0);
+    const nPosts = state?.mode === "auto" ? total : (curPage ? curPage.posts.length : 0);
     const cur = state?.cursor != null ? `${state.cursor}/${nPosts}` : "—";
     const nList = state?.outlist?.length || 0;
-    this.statusText.innerHTML = `普通 · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>0</b>`;
+    this.statusText.innerHTML = `${modeLabel} · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>0</b>`;
   }
 
   setError(msg) {

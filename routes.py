@@ -134,6 +134,35 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
             }
         )
 
+    @server.routes.post("/danbooru_browser/mode")
+    async def mode(request: web.Request) -> web.Response:
+        """模式动作:set_mode(manual/auto/list)或 reset_cursor;返回新会话(ADR-0003)。"""
+        if not _local_origin_ok(request):
+            return web.json_response({"error": "非法的请求来源"}, status=403)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "请求体必须是 JSON"}, status=400)
+        try:
+            http.set_proxy(body.get("proxy") or "")
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        action = body.get("action")
+        try:
+            session = browser.restore(body.get("state_json", ""))
+            if action == "set_mode":
+                new_mode = body.get("mode", "")
+                if new_mode not in ("manual", "auto", "list"):
+                    return web.json_response({"error": "未知模式"}, status=400)
+                session.set_mode(new_mode)
+            elif action == "reset_cursor":
+                session.reset_cursor()
+            else:
+                return web.json_response({"error": "未知动作"}, status=400)
+        except (StateError, KeyError, ValueError, TypeError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+        return web.json_response({"state_json": session.serialize()})
+
     @server.routes.post("/danbooru_browser/search")
     async def search(request: web.Request) -> web.Response:
         if not _local_origin_ok(request):

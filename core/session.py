@@ -34,8 +34,9 @@ class SessionState:
     pages: list[Page] = field(default_factory=list)
     cursor: int = 0
     selection: int | None = None
-    outlist: list[int] = field(default_factory=list)  # 列表模式(T4+);T1 恒空
+    outlist: list[int] = field(default_factory=list)  # 列表模式(T5);T1-T4 恒空
     page: int = 1  # 当前页(面板翻页位置,随工作流序列化)
+    mode: str = "manual"  # manual | auto | list(T5);驱动执行器的推进语义
 
     def loaded_posts(self) -> list[Post]:
         return [p for page in self.pages for p in page.posts]
@@ -54,6 +55,7 @@ class SessionState:
             "selection": self.selection,
             "outlist": self.outlist,
             "page": self.page,
+            "mode": self.mode,
         }
 
     @classmethod
@@ -65,6 +67,7 @@ class SessionState:
             selection=d.get("selection"),
             outlist=list(d.get("outlist", [])),
             page=int(d.get("page", 1)),
+            mode=d.get("mode", "manual"),
         )
 
 

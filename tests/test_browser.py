@@ -170,6 +170,136 @@ class TestSessionHandle:
             browser.restore(state_with_selection(http)).select(999)
 
 
+class TestAutoMode:
+    """自动模式:游标推进、自动翻页、重选重启、重置(issue #8)。"""
+
+    def build_auto_state(self, http, post_ids=(1, 2, 3), selection=None):
+        """真实流程:浏览 → 选中 → 点「自动」(set_mode 把游标挪到选中帖)。"""
+        posts = [make_post(i) for i in post_ids]
+        for p in posts:
+            http.bytes_responses[p.file_url] = IMAGE_BYTES
+        session = build_browser(http).restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=posts)],
+            selection=selection,
+        )))
+        session.set_mode("auto")
+        return session.serialize()
+
+    def test_set_mode_auto_points_cursor_at_selection(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=[make_post(1), make_post(2), make_post(3)])],
+            selection=2,
+        )))
+        session.set_mode("auto")
+        assert session.state.mode == "auto"
+        assert session.state.cursor == 1  # 选中帖 2 的索引
+
+    def test_auto_advances_cursor_each_call(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        state = self.build_auto_state(http, selection=2)
+        out1, s1 = browser.next_output(state)
+        assert out1.kind is OutputKind.IMAGE and out1.post.id == 2  # 先输出选中帖
+        assert browser.restore(s1).state.cursor == 2
+        out2, s2 = browser.next_output(s1)
+        assert out2.kind is OutputKind.IMAGE and out2.post.id == 3  # 再推进一张
+        assert browser.restore(s2).state.cursor == 3
+
+    def test_auto_fetches_next_page_when_cursor_past_end(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(4).raw), dict(make_post(5).raw),
+        ]
+        for p in (make_post(4), make_post(5)):
+            http.bytes_responses[p.file_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        state = self.build_auto_state(http, selection=3)  # 最后一帖,游标=2
+        out, s = browser.next_output(state)
+        assert out.kind is OutputKind.IMAGE and out.post.id == 3
+        # 游标 3 ≥ 已加载 3 帖 → 自动拉第 2 页
+        out2, s2 = browser.next_output(s)
+        assert out2.kind is OutputKind.IMAGE and out2.post.id == 4
+        new_state = browser.restore(s2).state
+        assert new_state.cursor == 4
+        assert {pg.number for pg in new_state.pages} == {1, 2}
+
+    def test_auto_empty_page_reports_end(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        browser = build_browser(http)
+        state = self.build_auto_state(http, selection=3)
+        _, s = browser.next_output(state)  # 输出 3,游标越界
+        out, _ = browser.next_output(s)  # 下一页为空 → 末尾
+        assert out.kind is OutputKind.EMPTY
+        assert "末尾" in (out.reason or "")
+
+    def test_reselect_moves_cursor_to_post(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        session = browser.restore(self.build_auto_state(http, selection=3))
+        session.select(1)  # 重选 1 → 游标跳回
+        assert session.state.cursor == 0
+        out, _ = browser.next_output(session.serialize())
+        assert out.post.id == 1
+
+    def test_reset_cursor_returns_to_selection(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        session = browser.restore(self.build_auto_state(http, selection=2))
+        session.reset_cursor()
+        assert session.state.cursor == 1
+
+    def test_mode_serializes_and_defaults_manual(self):
+        assert session_from_json('{"conditions": null, "pages": [], "cursor": 0}').mode == "manual"
+        state = SessionState(mode="auto")
+        assert session_from_json(session_to_json(state)).mode == "auto"
+
+    def test_auto_unbrowsed_is_empty(self):
+        output, _ = build_browser(FakeHttp()).next_output('{"mode": "auto", "pages": [], "cursor": 0}')
+        assert output.kind is OutputKind.EMPTY
+
+    def test_set_mode_rejects_unknown(self):
+        with pytest.raises(StateError):
+            build_browser(FakeHttp()).restore(self.build_auto_state(FakeHttp())).set_mode("garbage")
+
+    def test_mode_survives_search_and_paging(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(5).raw), dict(make_post(6).raw),
+        ]
+        browser = build_browser(http)
+        session = browser.restore(self.build_auto_state(http, selection=2))
+        session.search(SearchConditions(site="danbooru"))  # 筛选变更 = 会话重置
+        assert session.state.mode == "auto"
+        session.goto_page(2)  # 翻页
+        assert session.state.mode == "auto"
+
+    def test_negative_cursor_clamped(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        state = self.build_auto_state(http, selection=None)
+        tampered = session_from_json(state)
+        tampered.cursor = -5
+        out, _ = browser.next_output(session_to_json(tampered))
+        assert out.kind is OutputKind.IMAGE and out.post.id == 1  # 钳制到 0,不取 posts[-1]
+
+    def test_fetch_cap_prevents_runaway(self):
+        http = FakeHttp()
+        # 站点忽略页码:永远返回同一页内容
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(1).raw), dict(make_post(2).raw),
+        ]
+        browser = build_browser(http)
+        state = session_from_json(self.build_auto_state(http, selection=None))
+        state.cursor = 1000  # 篡改:远超已加载
+        out, _ = browser.next_output(session_to_json(state))
+        assert out.kind is OutputKind.EMPTY  # 拉取上限后停止,不无限循环
+
+
 class TestPagination:
     def test_goto_page_fetches_page_and_accumulates(self):
         http = FakeHttp()
