@@ -17,7 +17,7 @@ from .http import HttpAdapter
 
 _NSFW_MAP = {"g": "None", "s": "Soft", "q": "Soft", "e": "X"}
 _NSFW_LEVELS = frozenset(_NSFW_MAP.values())  # {"None", "Soft", "X"}
-_SORT_MAP = {"new": "Newest", "score": "Most Reactions", "random": "Newest"}
+_SORT_MAP = {"new": "Newest", "score": "Most Reactions"}
 
 
 def parse_post(d: dict[str, Any], site: str = "civitai") -> Post:

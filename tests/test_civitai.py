@@ -98,6 +98,12 @@ class TestSearch:
         site.search(SearchConditions(site="civitai", model_id=1, sort="score", per_page=20), 1)
         assert http.json_calls[-1][1]["sort"] == "Most Reactions"
 
+    def test_unsupported_sort_raises(self):
+        # random 不在 civitai 能力内:报错而非静默降级(审查发现静默映射 Newest)
+        site = CivitaiSite(FakeHttp())
+        with pytest.raises(StateError):
+            site.search(SearchConditions(site="civitai", model_id=1, sort="random", per_page=20), 1)
+
     def test_search_models(self):
         http = FakeHttp()
         http.json_responses["https://civitai.com/api/v1/models"] = {

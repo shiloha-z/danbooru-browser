@@ -484,7 +484,8 @@ class BrowserPanel {
     this.modeManualBtn.classList.toggle("on", m === "manual");
     this.modeAutoBtn.classList.toggle("on", m === "auto");
     this.modeListBtn.classList.toggle("on", m === "list");
-    this.resetBtn.disabled = m !== "auto";
+    // 自动/列表模式都有重置语义(选中帖 / 列表开头),普通模式无意义
+    this.resetBtn.disabled = m === "manual";
   }
 
   applyResult(res) {
@@ -608,7 +609,7 @@ class BrowserPanel {
     });
     document.addEventListener("keydown", onKey);
     document.body.appendChild(overlay);
-    if (post.animated && ["webm", "swf"].includes(raw.file_ext)) {
+    if (post.animated && ["webm", "swf"].includes(post.raw?.file_ext)) {
       toggle.disabled = true;
       fail("动画帖(webm/swf),暂不支持大图预览");
       return;
