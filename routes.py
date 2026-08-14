@@ -107,25 +107,15 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter,
 
     @server.routes.get("/danbooru_browser/tags")
     async def tags(request: web.Request) -> web.Response:
-        """标签补全候选:搜索框输入时的下拉建议(能力表驱动,ADR-0003)。
-
-        category 可选:按 danbooru 标签分类过滤(4=角色、1=画师)。
-        """
+        """标签补全候选:搜索框输入时的下拉建议(能力表驱动,ADR-0003)。"""
         query = request.query.get("q", "").strip()
         if not query:
             return web.json_response({"tags": []})
         site = browser.site(request.query.get("site", "danbooru"))
         if not site.capabilities.has_tag_autocomplete:
             return web.json_response({"error": "该站点不支持标签补全"}, status=501)
-        raw = request.query.get("category")
-        category = None
-        if raw:
-            try:
-                category = int(raw)  # isdigit() 对 ² 等字符误报,须 try/except
-            except ValueError:
-                return web.json_response({"error": "category 必须是数字"}, status=400)
         try:
-            names = await asyncio.to_thread(site.autocomplete_tags, query, category=category)
+            names = await asyncio.to_thread(site.autocomplete_tags, query)
         except TransportError as e:
             return web.json_response({"error": str(e)}, status=502)
         return web.json_response({"tags": names})
