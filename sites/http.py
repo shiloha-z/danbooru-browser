@@ -20,6 +20,7 @@ from core.errors import TransportError
 IMAGE_HOST_ALLOWLIST = frozenset({
     "danbooru.donmai.us", "cdn.donmai.us",
     "gelbooru.com", "img2.gelbooru.com", "img3.gelbooru.com", "img4.gelbooru.com",
+    "civitai.com", "image.civitai.com",
 })
 
 _IMAGE_CONTENT_TYPES = {

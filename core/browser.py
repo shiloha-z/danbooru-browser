@@ -133,7 +133,8 @@ class Browser:
         caps = self.site(post.site).capabilities
         if caps.prompt_kind == "tags":
             return ", ".join(t for t in post.tags if t not in out_filter)
-        return str(post.raw.get("embedded_prompt", ""))  # civitai:内嵌生成提示词(T2+)
+        # civitai:内嵌生成参数里的 prompt;缺失 → 空串(面板提示)
+        return str((post.raw.get("meta") or {}).get("prompt") or "")
 
     # ---------- 内部 ----------
 

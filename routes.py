@@ -170,13 +170,37 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
 
     @server.routes.get("/danbooru_browser/capabilities")
     async def capabilities(request: web.Request) -> web.Response:
-        """站点能力:面板切换站点时调整控件(如 gelbooru 评级只能单选)。"""
+        """站点能力:面板切换站点时调整控件(评级单选/排除/排序/搜索模式)。"""
         site_name = request.query.get("site", "danbooru")
         try:
             site = browser.site(site_name)
         except StateError as e:
             return web.json_response({"error": str(e)}, status=400)
-        return web.json_response({"site": site_name, "multi_rating": site.capabilities.multi_rating})
+        caps = site.capabilities
+        return web.json_response({
+            "site": site_name,
+            "multi_rating": caps.multi_rating,
+            "has_exclude_tags": caps.has_exclude_tags,
+            "has_tag_search": caps.has_tag_search,
+            "has_model_search": caps.has_model_search,
+            "sort_options": list(caps.sort_options),
+            "prompt_kind": caps.prompt_kind,
+        })
+
+    @server.routes.get("/danbooru_browser/models")
+    async def models(request: web.Request) -> web.Response:
+        """模型名搜索(civitai):搜索框 → 模型列表选择器。"""
+        query = request.query.get("q", "").strip()
+        if not query:
+            return web.json_response({"models": []})
+        site = browser.site(request.query.get("site", "civitai"))
+        if not site.capabilities.has_model_search:
+            return web.json_response({"error": "该站点不支持模型搜索"}, status=501)
+        try:
+            items = await asyncio.to_thread(site.search_models, query)
+        except TransportError as e:
+            return web.json_response({"error": str(e)}, status=502)
+        return web.json_response({"models": items})
 
     @server.routes.post("/danbooru_browser/action")
     async def action(request: web.Request) -> web.Response:

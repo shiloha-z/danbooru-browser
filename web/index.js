@@ -121,7 +121,7 @@ class BrowserPanel {
         <select id="dbb-site" title="站点">
           <option value="danbooru" selected>danbooru</option>
           <option value="gelbooru">gelbooru</option>
-          <option disabled>civitai (后续版本)</option>
+          <option value="civitai">civitai</option>
         </select>
         <button id="dbb-settings" title="API 凭据设置">⚙</button>
         <div class="dbb-searchwrap">
@@ -174,23 +174,17 @@ class BrowserPanel {
     `;
     el.querySelector("#dbb-search-btn").onclick = () => this.doSearch();
     el.querySelector("#dbb-settings").onclick = () => this.openSettings();
-    el.querySelector("#dbb-site").addEventListener("change", async () => {
-      // 切站时按能力调整评级控件(gelbooru 只能单选)
-      try {
-        const resp = await fetch(
-          `${API_BASE}/capabilities?site=${encodeURIComponent(el.querySelector("#dbb-site").value)}`,
-        );
-        const data = await resp.json();
-        if (data.multi_rating !== undefined) this.multiRating = data.multi_rating !== false;
-        if (!this.multiRating) {
-          const on = el.querySelectorAll(".dbb-chip.on");
-          on.forEach((x, i) => { if (i > 0) x.classList.remove("on"); });  // 只保留第一个
-        }
-      } catch { /* 搜索时会再同步 */ }
+    el.querySelector("#dbb-site").addEventListener("change", () => {
+      this.modelId = null;  // 切站清模型
+      this.applySiteCapabilities();
     });
+    this.applySiteCapabilities();
     this.page = 1;
     this.hasNext = false;
     this.multiRating = true;
+    this.capSeq = 0;
+    this.modelId = null;
+    this.isModelSearch = false;
     this.pageInput = el.querySelector("#dbb-page");
     this.prevBtn = el.querySelector("#dbb-prev");
     this.nextBtn = el.querySelector("#dbb-next");
@@ -265,8 +259,11 @@ class BrowserPanel {
     const state = parseWidget(this.widget?.value);
     if (state?.conditions) {
       this.syncControls(state);
-      if (state.page && state.page > 1) this.gotoPage(state.page);
-      else this.doSearch();
+      // 先拉站点能力(决定搜索框模式:标签 vs 模型),再重拉结果
+      this.applySiteCapabilities().then(() => {
+        if (state.page && state.page > 1) this.gotoPage(state.page);
+        else this.doSearch();
+      });
     } else {
       this.renderEmpty("未浏览 — 点击「搜索」加载 danbooru 最新帖子");
     }
@@ -280,11 +277,33 @@ class BrowserPanel {
     const hide = () => { box.style.display = "none"; };
     input.addEventListener("input", () => {
       clearTimeout(timer);
+      if (this.isModelSearch) this.modelId = null;  // 编辑输入 = 放弃已选模型
       const q = input.value.trim();
       if (!q) return hide();
       const mySeq = ++seq;
       timer = setTimeout(async () => {
         try {
+          if (this.isModelSearch) {
+            // civitai:模型名搜索 → 选择器,选中即按模型浏览图片
+            const resp = await fetch(`${API_BASE}/models?q=${encodeURIComponent(q)}`);
+            const data = await resp.json();
+            if (mySeq !== seq) return;
+            if (data.error || !data.models?.length) return hide();
+            box.innerHTML = "";
+            data.models.slice(0, 8).forEach((m) => {
+              const div = document.createElement("div");
+              div.textContent = m.name;
+              div.onmousedown = () => {
+                this.modelId = m.id;
+                input.value = m.name;
+                hide();
+                this.doSearch();
+              };
+              box.appendChild(div);
+            });
+            box.style.display = "block";
+            return;
+          }
           const resp = await fetch(`${API_BASE}/tags?q=${encodeURIComponent(q)}`);
           const data = await resp.json();
           if (mySeq !== seq) return;
@@ -319,9 +338,18 @@ class BrowserPanel {
   }
 
   readConditions() {
+    const ratings = [...this.el.querySelectorAll(".dbb-chip.on")].map((c) => c.dataset.r);
+    if (this.isModelSearch) {  // civitai:按模型浏览,无标签体系
+      return {
+        site: this.el.querySelector("#dbb-site").value,
+        model_id: this.modelId,
+        ratings,
+        sort: this.el.querySelector("#dbb-sort").value,
+        per_page: +this.el.querySelector("#dbb-perpage").value,
+      };
+    }
     const tags = this.el.querySelector("#dbb-search").value.trim().split(/[,\s]+/).filter(Boolean);
     const excludeTags = this.el.querySelector("#dbb-exclude").value.trim().split(/[,\s]+/).filter(Boolean);
-    const ratings = [...this.el.querySelectorAll(".dbb-chip.on")].map((c) => c.dataset.r);
     return {
       site: this.el.querySelector("#dbb-site").value,
       tags,
@@ -334,6 +362,9 @@ class BrowserPanel {
 
   syncControls(state) {
     const c = state?.conditions || {};
+    const siteSel = this.el.querySelector("#dbb-site");
+    if (c.site && siteSel.value !== c.site) siteSel.value = c.site;  // 还原站点选择
+    this.modelId = c.model_id ?? null;  // civitai:还原模型
     this.el.querySelector("#dbb-search").value = (c.tags || []).join(", ");
     this.el.querySelector("#dbb-exclude").value = (c.exclude_tags || []).join(", ");
     // out_filter 在会话顶层,不在 conditions 里
@@ -450,6 +481,12 @@ class BrowserPanel {
     this.updateNavButtons();
     this.renderGrid(res.posts);
     const state = parseWidget(res.state_json);
+    if (this.isModelSearch && this.modelId) {
+      // civitai:搜索框显示模型名(重开工作流时从首帖 raw 还原)
+      const first = (state.pages || []).flatMap((pg) => pg.posts)[0];
+      const name = first?.raw?.model?.name;
+      if (name) this.el.querySelector("#dbb-search").value = name;
+    }
     this.updateMode(state?.mode);
     this.updateStatus(state);
     this.renderFooter(state?.selection ?? null);
@@ -596,16 +633,50 @@ class BrowserPanel {
     }
     const post = this.findPost(state, selId);
     if (post) {
-      // 与后端派生一致:输出过滤剔除的标签在预览中同样剔除
-      const filter = state?.out_filter || [];
-      const filtered = post.tags.filter((t) => !filter.includes(t));
-      text.innerHTML = filtered.length
-        ? `已选 <b>#${post.id}</b> · 提示词:${filtered.join(", ")}`
-        : `已选 <b>#${post.id}</b> · 提示词已全部被过滤`;
+      if (this.isModelSearch) {
+        // civitai:内嵌提示词;缺失时提示
+        const prompt = post.raw?.meta?.prompt || "";
+        text.innerHTML = prompt
+          ? `已选 <b>#${post.id}</b> · 提示词:${prompt}`
+          : `已选 <b>#${post.id}</b> · 无内嵌提示词`;
+      } else {
+        // 与后端派生一致:输出过滤剔除的标签在预览中同样剔除
+        const filter = state?.out_filter || [];
+        const filtered = post.tags.filter((t) => !filter.includes(t));
+        text.innerHTML = filtered.length
+          ? `已选 <b>#${post.id}</b> · 提示词:${filtered.join(", ")}`
+          : `已选 <b>#${post.id}</b> · 提示词已全部被过滤`;
+      }
     } else {
       text.innerHTML = `已选 <b>#${selId}</b>`;
     }
     this.updateListToggle(selId);
+  }
+
+  async applySiteCapabilities() {
+    const mySeq = ++this.capSeq;  // 快速切站时丢弃过期响应
+    const site = this.el.querySelector("#dbb-site").value;
+    try {
+      const resp = await fetch(`${API_BASE}/capabilities?site=${encodeURIComponent(site)}`);
+      const data = await resp.json();
+      if (mySeq !== this.capSeq) return;
+      if (data.multi_rating !== undefined) this.multiRating = data.multi_rating !== false;
+      if (!this.multiRating) {
+        const on = this.el.querySelectorAll(".dbb-chip.on");
+        on.forEach((x, i) => { if (i > 0) x.classList.remove("on"); });  // 只保留第一个
+      }
+      this.el.querySelector("#dbb-exclude").disabled = data.has_exclude_tags === false;
+      this.el.querySelector("#dbb-outfilter").disabled = data.prompt_kind === "embedded";
+      const sortOpts = data.sort_options || ["new", "score", "random"];
+      const sortSel = this.el.querySelector("#dbb-sort");
+      [...sortSel.options].forEach((o) => {
+        o.disabled = !sortOpts.includes(o.value);
+        if (o.disabled && sortSel.value === o.value) sortSel.value = "new";
+      });
+      this.isModelSearch = data.has_model_search === true;
+      const searchInput = this.el.querySelector("#dbb-search");
+      searchInput.placeholder = this.isModelSearch ? "模型名搜索…" : "标签搜索(逗号分隔)…";
+    } catch { /* 搜索时会再同步 */ }
   }
 
   openSettings() {

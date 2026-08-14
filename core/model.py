@@ -76,6 +76,7 @@ class SearchConditions:
     ratings: frozenset[str] = frozenset({"g", "s", "q", "e"})
     sort: str = "new"  # new | score | random,站点语义映射
     per_page: int = 40
+    model_id: int | None = None  # civitai:模型名搜索选中后按模型浏览图片
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,6 +86,7 @@ class SearchConditions:
             "ratings": sorted(self.ratings),
             "sort": self.sort,
             "per_page": self.per_page,
+            "model_id": self.model_id,
         }
 
     @classmethod
@@ -96,6 +98,7 @@ class SearchConditions:
             ratings=frozenset(d.get("ratings", ("g", "s", "q", "e"))),
             sort=d.get("sort", "new"),
             per_page=int(d.get("per_page", 40)),
+            model_id=d.get("model_id"),
         )
 
 

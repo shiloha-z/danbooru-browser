@@ -20,7 +20,8 @@ class SiteCapabilities:
     has_exclude_tags: bool = True
     has_ratings: bool = True
     has_tag_autocomplete: bool = False  # 面板搜索框标签补全(danbooru 有 /autocomplete.json)
-    multi_rating: bool = True  # 评级多选(OR);gelbooru 无 OR 运算,只能单选
+    has_model_search: bool = False  # 模型名搜索(civitai:搜索框 → 模型选择器)
+    multi_rating: bool = True  # 评级多选(OR);gelbooru/civitai 只能单选
     ratings: tuple[str, ...] = ("g", "s", "q", "e")
     sort_options: tuple[str, ...] = ("new", "score", "random")
     prompt_kind: str = "tags"  # "tags"(booru 标签拼接) | "embedded"(civitai 内嵌生成参数)
@@ -32,3 +33,5 @@ class Site(Protocol):
     def search(self, conditions: SearchConditions, page: int) -> SearchResult: ...
 
     def fetch_image(self, post: Post, url: str | None = None) -> bytes: ...
+
+    def search_models(self, query: str, limit: int = 10) -> list[dict]: ...
