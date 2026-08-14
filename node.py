@@ -15,6 +15,7 @@ from PIL import Image, UnidentifiedImageError
 
 from wiring import get_browser, get_http
 from core.model import OutputKind
+from core.text_passthrough import passthrough_text
 
 
 def image_bytes_to_tensor(data: bytes) -> torch.Tensor:
@@ -64,3 +65,42 @@ class DanbooruBrowserNode:
             }
         # 手动模式:EMPTY / FAILED / ANIMATED 均为明确报错(自动/列表模式的跳过语义在后续票)
         raise RuntimeError(output.reason or f"输出失败: {output.kind.value}")
+
+
+class DanbooruBrowserTextPassthrough:
+    """文本(透传):原文/标签双模式编辑后输出(移植自 Anima 包,核心版)。
+
+    裁剪:中文翻译/收藏/云、执行中暂停编辑、PNG 元数据写回。
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {},
+            "optional": {
+                "use_input_text": ("BOOLEAN", {"default": True}),
+                "text": ("STRING", {"default": "", "multiline": True, "forceInput": True, "lazy": True}),
+                "prompt_text": ("STRING", {"multiline": True, "default": ""}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "passthrough"
+    CATEGORY = "danbooru_browser"
+
+    def check_lazy_status(self, use_input_text=True, text="", prompt_text="", **kwargs):
+        return ["text"] if use_input_text else []
+
+    @classmethod
+    def IS_CHANGED(cls, use_input_text=True, text="", prompt_text="", **kwargs):
+        import hashlib
+        m = hashlib.sha256()
+        m.update(str(use_input_text).encode())
+        m.update(str(prompt_text).encode())
+        if use_input_text and text:
+            m.update(str(text).encode())
+        return m.hexdigest()
+
+    def passthrough(self, text="", prompt_text="", use_input_text=True, **kwargs):
+        return (passthrough_text(text, prompt_text, use_input_text),)
