@@ -808,7 +808,7 @@ class BrowserPanel {
     overlay.className = "dbb-lightbox";
     overlay.innerHTML = `
       <div class="dbb-lb-bar"><b>凭据设置</b><button class="dbb-lb-close">关闭</button></div>
-      <div style="display:flex;flex-direction:column;gap:8px;background:#141419;border:1px solid #3a3a42;border-radius:8px;padding:12px;min-width:320px">
+      <div style="display:flex;flex-direction:column;gap:10px;background:#141419;border:1px solid #3a3a42;border-radius:8px;padding:16px;min-width:460px;max-width:92vw">
         <div><b>danbooru</b> <span style="color:#8a8a94;font-size:11px">(可选,匿名可用)</span><button class="dbb-cred-clear" data-site="danbooru" style="margin-left:8px">清除</button></div>
         <div style="display:flex;gap:6px">
           <input id="dbb-cred-dan-login" placeholder="登录名" style="flex:1">
@@ -823,13 +823,13 @@ class BrowserPanel {
         <div class="dbb-cred-status" style="color:#8a8a94;font-size:11px">留空 = 保持不变;清除需编辑 credentials.json</div>
         <hr style="border:none;border-top:1px solid #3a3a42;margin:4px 0">
         <div><b>搜索与输出</b></div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="color:#8a8a94;font-size:11px;width:52px">排除标签</span>
-          <input id="dbb-set-exclude" placeholder="逗号分隔,含任一排除标签的帖子不出现" style="flex:1">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="color:#8a8a94;font-size:11px">排除标签(逗号分隔,含任一排除标签的帖子不出现)</span>
+          <input id="dbb-set-exclude" placeholder="如: nude, blood" style="width:100%;box-sizing:border-box">
         </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="color:#8a8a94;font-size:11px;width:52px">输出过滤</span>
-          <input id="dbb-set-outfilter" placeholder="逗号分隔,提示词输出时剔除的标签" style="flex:1">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="color:#8a8a94;font-size:11px">输出过滤(逗号分隔,提示词输出时剔除的标签)</span>
+          <input id="dbb-set-outfilter" placeholder="如: nsfw, text" style="width:100%;box-sizing:border-box">
         </div>
         <label style="display:flex;gap:6px;align-items:center;font-size:11px;color:#d8d8de;cursor:pointer">
           <input type="checkbox" id="dbb-set-hidevideos"> 过滤视频帖
