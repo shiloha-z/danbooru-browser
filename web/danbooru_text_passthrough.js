@@ -1,5 +1,7 @@
 import { app } from "../../scripts/app.js";
 
+const API_BASE = "/danbooru_browser";
+
 /**
  * 文本(透传)节点面板(移植自 Anima 包,issue #24)。
  *
@@ -28,7 +30,7 @@ app.registerExtension({
       if (!textWidget) return;
 
       const wrap = document.createElement("div");
-      wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;padding:6px;min-width:220px";
+      wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;padding:6px;min-width:220px;height:100%;box-sizing:border-box;overflow-y:auto";
 
       const toolbar = document.createElement("div");
       toolbar.style.cssText = "display:flex;gap:4px;align-items:center;flex-wrap:wrap";
@@ -247,8 +249,8 @@ app.registerExtension({
       textarea.value = textWidget.value || "";
       if (useInputWidget) useInput = !!useInputWidget.value;
       setUiBtn();
-      this.addDOMWidget("pt_ui", "div", wrap, { serialize: false });
-      setTimeout(() => this.setSize([Math.max(this.size[0], 280), Math.max(this.size[1], 200)]), 50);
+      this.addDOMWidget("pt_ui", "div", wrap, { serialize: false, onDraw: () => {} });
+      setTimeout(() => this.setSize([Math.max(this.size[0], 300), Math.max(this.size[1], 220)]), 50);
       // widget 在 onNodeCreated 后才创建,延后隐藏内部 text/prompt_text
       setTimeout(() => {
         [textWidget, promptWidget].forEach((w) => {
