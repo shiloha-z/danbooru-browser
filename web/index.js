@@ -127,7 +127,7 @@ class BrowserPanel {
           <input type="text" id="dbb-search" placeholder="标签搜索(空格分隔)…">
           <div class="dbb-ac" id="dbb-ac"></div>
         </div>
-        <input type="text" id="dbb-exclude" disabled title="T2 后续票" placeholder="排除标签(后续版本)…">
+        <input type="text" id="dbb-exclude" placeholder="排除标签(空格分隔)…" style="width:110px" title="含任一排除标签的帖子不出现">
         <button class="primary" id="dbb-search-btn">搜索</button>
       </div>
       <div class="dbb-row">
@@ -281,10 +281,12 @@ class BrowserPanel {
 
   readConditions() {
     const tags = this.el.querySelector("#dbb-search").value.trim().split(/\s+/).filter(Boolean);
+    const excludeTags = this.el.querySelector("#dbb-exclude").value.trim().split(/\s+/).filter(Boolean);
     const ratings = [...this.el.querySelectorAll(".dbb-chip.on")].map((c) => c.dataset.r);
     return {
       site: this.el.querySelector("#dbb-site").value,
       tags,
+      exclude_tags: excludeTags,
       ratings,
       sort: this.el.querySelector("#dbb-sort").value,
       per_page: +this.el.querySelector("#dbb-perpage").value,
@@ -293,6 +295,7 @@ class BrowserPanel {
 
   syncControls(c) {
     this.el.querySelector("#dbb-search").value = (c.tags || []).join(" ");
+    this.el.querySelector("#dbb-exclude").value = (c.exclude_tags || []).join(" ");
     this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
       chip.classList.toggle("on", (c.ratings || ALL_RATINGS).includes(chip.dataset.r));
     });

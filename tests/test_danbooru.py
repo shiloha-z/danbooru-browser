@@ -21,17 +21,18 @@ def raw_post(post_id: int = 42, **overrides) -> dict:
 
 
 class FlakyHttp(FakeHttp):
-    """首次请求指定 URL 抛 TransportError(模拟 danbooru 500),后续请求正常。"""
+    """首次请求指定 URL 抛 TransportError(模拟 danbooru 4xx/5xx),后续请求正常。"""
 
-    def __init__(self, fail_once_urls=()) -> None:
+    def __init__(self, fail_once_urls=(), status: int = 500) -> None:
         super().__init__()
         self._fail_urls = set(fail_once_urls)
+        self._status = status
 
     def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
         self.json_calls.append((url, params))
         if url in self._fail_urls:
             self._fail_urls.remove(url)
-            raise TransportError(f"HTTP 500: {url}", status=500)
+            raise TransportError(f"HTTP {self._status}: {url}", status=self._status)
         try:
             return self.json_responses[url]
         except KeyError:
@@ -173,6 +174,26 @@ class TestSearch:
         with pytest.raises(TransportError):
             site.search(SearchConditions(site="danbooru", tags=("1girl",), sort="new", per_page=20), 1)
         assert len(http.json_calls) == 1  # 非 score 排序不重试
+
+    def test_exclude_with_order_retries_without_order_on_422(self):
+        # danbooru:正标签+负标签+order 元标签组合稳定 422(2026-08 实测);
+        # 去掉 order 令牌重试,排序降级为默认
+        http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"], status=422)
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [raw_post(1)]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", tags=("1girl",),
+                                              exclude_tags=("nude",), per_page=20), 1)
+        assert [p.id for p in result.posts] == [1]
+        assert http.json_calls[0][1]["tags"] == "1girl order:id_desc -nude"
+        assert http.json_calls[1][1]["tags"] == "1girl -nude"  # order 已去除
+
+    def test_non_exclude_422_propagates(self):
+        http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"], status=422)
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [raw_post(1)]
+        site = DanbooruSite(http)
+        with pytest.raises(TransportError):
+            site.search(SearchConditions(site="danbooru", tags=("1girl",), per_page=20), 1)
+        assert len(http.json_calls) == 1  # 无排除标签不重试
 
     def test_fetch_image(self):
         http = FakeHttp()

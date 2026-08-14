@@ -142,6 +142,18 @@ class TestSessionHandle:
         # 重新序列化后往返一致
         assert browser.restore(new_state).state == state
 
+    def test_exclude_tags_change_triggers_reset(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(5).raw), dict(make_post(6).raw),
+        ]
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http, selection=2))
+        session.search(SearchConditions(site="danbooru", exclude_tags=("nude",), per_page=40))
+        state = browser.restore(session.serialize()).state
+        assert state.conditions.exclude_tags == ("nude",)
+        assert state.selection is None  # 排除标签变更 = 筛选变更 → 会话重置
+
     def test_reopen_same_conditions_keeps_selection(self):
         http = FakeHttp()
         http.json_responses["https://danbooru.donmai.us/posts.json"] = [

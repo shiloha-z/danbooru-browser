@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from typing import Any
 
@@ -61,12 +62,18 @@ class DanbooruSite:
         try:
             data = self._http.get_json(url, params=params)
         except TransportError as e:
-            if conditions.sort != "score" or "order:score" not in tags or e.status != 500:
+            if e.status == 500 and conditions.sort == "score" and "order:score" in tags:
+                # danbooru 对含普通标签的 order:score 查询稳定 500(2026-08 实测);
+                # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
+                params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
+                data = self._http.get_json(url, params=params)
+            elif e.status == 422 and conditions.exclude_tags and re.search(r"\border:", params["tags"]):
+                # danbooru:正标签+负标签+order 元标签组合稳定 422(2026-08 实测,
+                # 参数形式的 order 不生效);去掉 order 令牌重试,排序降级为默认
+                params = {**params, "tags": re.sub(r"\s*order:[^\s]*", "", params["tags"]).strip()}
+                data = self._http.get_json(url, params=params)
+            else:
                 raise
-            # danbooru 对含普通标签的 order:score 查询稳定 500(2026-08 实测);
-            # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
-            params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
-            data = self._http.get_json(url, params=params)
         posts = tuple(parse_post(d, "danbooru") for d in data)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
