@@ -26,11 +26,11 @@ const PANEL_CSS = `
 .dbb-panel input[type=text],.dbb-panel select{background:#141419;border:1px solid #3a3a42;color:#d8d8de;
   border-radius:5px;padding:3px 7px;outline:none;font:inherit;min-width:0}
 .dbb-panel input:disabled,.dbb-panel select:disabled{opacity:.45;cursor:not-allowed}
-.dbb-panel button{background:#33333c;border:1px solid #3a3a42;color:#d8d8de;border-radius:5px;
-  padding:3px 10px;cursor:pointer;font:inherit}
-.dbb-panel button:hover:not(:disabled){background:#3e3e49}
+.dbb-panel button,.dbb-lightbox button{background:#33333c;border:1px solid #3a3a42;color:#d8d8de;
+  border-radius:5px;padding:3px 10px;cursor:pointer;font:inherit}
+.dbb-panel button:hover:not(:disabled),.dbb-lightbox button:hover{background:#3e3e49}
 .dbb-panel button.primary{background:#4f8cff;border-color:#4f8cff;color:#fff;font-weight:600}
-.dbb-panel button:disabled{opacity:.45;cursor:not-allowed}
+.dbb-panel button:disabled,.dbb-lightbox button:disabled{opacity:.45;cursor:not-allowed}
 .dbb-row{display:flex;gap:6px;align-items:center}
 .dbb-mode{display:flex;gap:2px;background:#141419;border:1px solid #3a3a42;border-radius:5px;padding:2px}
 .dbb-mode button{border:none;background:none;padding:2px 9px;border-radius:4px}
@@ -47,6 +47,10 @@ const PANEL_CSS = `
 .dbb-empty .big{font-size:26px;margin-bottom:6px}
 .dbb-footer{min-height:34px;border:1px dashed #3a3a42;border-radius:5px;padding:5px 8px;font-size:11px;color:#8a8a94;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dbb-footer b{color:#d8d8de}
+.dbb-lightbox{position:fixed;inset:0;background:rgba(10,10,14,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.dbb-lightbox .dbb-lb-bar{display:flex;gap:8px}
+.dbb-lightbox img{max-width:92vw;max-height:84vh;border-radius:6px;box-shadow:0 6px 40px rgba(0,0,0,.6)}
+.dbb-lightbox .dbb-lb-msg{color:#ff5f56;font-size:13px;text-align:center;max-width:80vw}
 `;
 
 function injectCss() {
@@ -177,7 +181,75 @@ class BrowserPanel {
       .join("");
     this.grid.querySelectorAll(".thumb").forEach((t) => {
       t.onclick = () => this.selectPost(+t.dataset.id);
+      // 双击:两次单击的 toggle 互相抵消,选中状态不变,可安全共存
+      t.ondblclick = () => this.showLightbox(+t.dataset.id);
     });
+  }
+
+  findPost(state, id) {
+    return (state.pages || []).flatMap((pg) => pg.posts).find((p) => p.id === id) || null;
+  }
+
+  showLightbox(id) {
+    const state = parseWidget(this.widget?.value);
+    if (!state) return;
+    const post = this.findPost(state, id);
+    if (!post) return;
+    const raw = post.raw || {};
+    const sample = raw.large_file_url || raw.preview_file_url || post.file_url;
+    const original = raw.file_url || post.file_url;
+    const hasOriginal = original && original !== sample;
+    const overlay = document.createElement("div");
+    overlay.className = "dbb-lightbox";
+    overlay.innerHTML = `
+      <div class="dbb-lb-bar">
+        <button class="dbb-lb-toggle">原图</button>
+        <button class="dbb-lb-close">关闭</button>
+      </div>
+      <div class="dbb-lb-msg"></div>
+      <img alt="大图预览">
+    `;
+    const img = overlay.querySelector("img");
+    const msg = overlay.querySelector(".dbb-lb-msg");
+    const toggle = overlay.querySelector(".dbb-lb-toggle");
+    let showingOriginal = false;
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const fail = (text) => {
+      img.style.display = "none";
+      msg.style.display = "block";
+      msg.textContent = text;
+    };
+    const load = (url, label) => {
+      if (!url) return fail("没有可显示的图片");
+      msg.style.display = "none";
+      img.style.display = "block";
+      img.src = `${API_BASE}/image?url=${encodeURIComponent(url)}`;
+      toggle.textContent = label;
+    };
+    img.onerror = () => fail("图片加载失败(可能已删除或网络异常)");
+    toggle.onclick = () => {
+      showingOriginal = !showingOriginal;
+      load(showingOriginal ? original : sample, showingOriginal ? "缩略图" : "原图");
+    };
+    overlay.querySelector(".dbb-lb-close").onclick = close;
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(overlay);
+    if (post.animated && ["webm", "swf"].includes(raw.file_ext)) {
+      toggle.disabled = true;
+      fail("动画帖(webm/swf),暂不支持大图预览");
+      return;
+    }
+    if (!hasOriginal) toggle.disabled = true;  // 原图不可用时切换是 no-op
+    load(sample, "原图");
   }
 
   renderEmpty(msg) {
@@ -202,7 +274,7 @@ class BrowserPanel {
       this.footer.textContent = "未选中 — 点击缩略图选中;执行队列输出所选帖子";
       return;
     }
-    const post = (state.pages || []).flatMap((pg) => pg.posts).find((p) => p.id === selId);
+    const post = this.findPost(state, selId);
     this.footer.innerHTML = post
       ? `已选 <b>#${post.id}</b> · 提示词:${post.tags.join(", ")}`
       : `已选 <b>#${selId}</b>`;
