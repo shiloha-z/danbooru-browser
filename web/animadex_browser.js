@@ -301,14 +301,26 @@ app.registerExtension({
           const thumbUrl = r.thumb_url || "";
           const dbTag = slug || trig || name;
 
+          // 直连 Danbooru Browser 节点(参考包同款):连线值只在队列执行时
+          // 传播,选中必须即时驱动。写入「来自AnimaDex」widget,浏览器面板
+          // 轮询到新值后填入搜索框并搜索(自动处理 civitai 切回 danbooru)。
+          const sendToDanbooru = (tag) => {
+            if (tagW) tagW.value = tag;
+            node.isChanged = true;
+            for (const n of (app.graph?._nodes || [])) {
+              if (n.type !== "DanbooruBrowserNode") continue;
+              const aw = n.widgets?.find((w) => w.name === "来自AnimaDex");
+              if (aw) aw.value = tag;
+            }
+          };
+
           const card = document.createElement("div");
           card.style.cssText = "background:#0f3460;border-radius:6px;overflow:hidden;cursor:pointer;border:2px solid transparent;width:calc(33.333% - 6px);flex-shrink:0;box-sizing:border-box;";
           card.onclick = () => {
             grid.querySelectorAll(".ad-sel").forEach((c) => { c.style.borderColor = "transparent"; c.classList.remove("ad-sel"); });
             card.style.borderColor = "#e94560";
             card.classList.add("ad-sel");
-            if (tagW) tagW.value = dbTag;  // 选中即输出该角色/画师标签
-            node.isChanged = true;
+            sendToDanbooru(dbTag);  // 选中即输出并驱动浏览器节点搜索
           };
 
           const imgDiv = document.createElement("div");
@@ -373,17 +385,7 @@ app.registerExtension({
           dbBtn.style.cssText = "display:block;width:100%;padding:3px 0;margin-top:2px;border:none;border-radius:3px;background:#0f3460;color:#4fc3f7;cursor:pointer;font-size:10px;text-align:center;";
           dbBtn.onclick = (e) => {
             e.stopPropagation();
-            if (tagW) tagW.value = dbTag;
-            node.isChanged = true;
-            for (const n of (app.graph?._nodes || [])) {
-              if (n.type !== "DanbooruBrowserNode") continue;
-              const el2 = n.nodeEl?.querySelector?.("#dbb-search");
-              if (el2) {
-                el2.value = dbTag;
-                el2.dispatchEvent(new Event("input", { bubbles: true }));
-                el2.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-              }
-            }
+            sendToDanbooru(dbTag);
             dbBtn.textContent = "✅ 已发送";
             setTimeout(() => { dbBtn.textContent = "🔍 去 D站搜索"; }, 1500);
           };
