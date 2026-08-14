@@ -18,16 +18,18 @@ except ImportError:  # 测试环境:无 comfy 依赖,包只做占位(可被 pyte
 
 if PromptServer is not None:  # 正常 ComfyUI 加载路径
     from wiring import get_browser, get_cache, get_http
-    from node import DanbooruBrowserNode, DanbooruBrowserTextPassthrough
+    from node import DanbooruBrowserAnimaDex, DanbooruBrowserNode, DanbooruBrowserTextPassthrough
     from routes import setup_routes
 
     NODE_CLASS_MAPPINGS = {
         "DanbooruBrowserNode": DanbooruBrowserNode,
         "DanbooruBrowserTextPassthrough": DanbooruBrowserTextPassthrough,
+        "DanbooruBrowserAnimaDex": DanbooruBrowserAnimaDex,
     }
     NODE_DISPLAY_NAME_MAPPINGS = {
         "DanbooruBrowserNode": "Danbooru Browser",
         "DanbooruBrowserTextPassthrough": "文本(透传)",
+        "DanbooruBrowserAnimaDex": "AnimaDex 浏览器",
     }
     WEB_DIRECTORY = "./web"
 

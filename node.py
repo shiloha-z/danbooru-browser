@@ -117,3 +117,26 @@ class DanbooruBrowserTextPassthrough:
 
             output = pt_state.pause_execute(unique_id, output, notify)
         return (output,)
+
+
+class DanbooruBrowserAnimaDex:
+    """AnimaDex 角色/画师浏览器(移植自参考包,issue #25)。
+
+    面板搜索/筛选/翻页,点击结果把该角色/画师的 tag 写入 _tag 输出。
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"_tag": ("STRING", {"default": "", "multiline": False})}}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("tag",)
+    FUNCTION = "run"
+    CATEGORY = "danbooru_browser"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # 前端点击结果写 _tag,恒重新执行
+
+    def run(self, _tag=""):
+        return (_tag or "",)

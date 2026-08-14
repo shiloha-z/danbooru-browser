@@ -21,6 +21,7 @@ IMAGE_HOST_ALLOWLIST = frozenset({
     "danbooru.donmai.us", "cdn.donmai.us",
     "gelbooru.com", "img2.gelbooru.com", "img3.gelbooru.com", "img4.gelbooru.com",
     "civitai.com", "image.civitai.com",
+    "animadex.net", "blobs.animadex.net",  # AnimaDex 缩略图在 blobs 子域
 })
 
 _IMAGE_CONTENT_TYPES = {

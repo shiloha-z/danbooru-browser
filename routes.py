@@ -17,6 +17,7 @@ from core.browser import Browser
 from core.disk_cache import DiskImageCache
 from core.errors import StateError, TransportError
 from core.model import Post, SearchConditions
+from sites import animadex
 from sites.cn_tags import is_chinese_query, match as match_cn_tags, query_token
 from sites.credentials import clear_credentials, get_credentials, save_credentials
 from sites.http import HttpAdapter, image_content_type, is_allowed_image_url
@@ -207,6 +208,55 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter,
             pt_state._edited[key] = body.get("text", "")
             pt_state._status[key] = "continue"
         return web.json_response({"ok": True})
+
+    @server.routes.post("/danbooru_browser/animadex/search")
+    async def animadex_search(request: web.Request) -> web.Response:
+        """AnimaDex 角色/画师搜索:逗号多关键词合并去重,支持 facet 与随机。"""
+        try:
+            body = await request.json()
+            mode = body.get("mode", "characters")
+            page = max(1, int(body.get("page", 1)))
+            sort = body.get("sort", "count")
+        except (ValueError, TypeError):
+            return web.json_response({"success": False, "error": "参数非法"}, status=400)
+        if mode not in animadex.MODES or sort not in animadex.SORTS:
+            return web.json_response({"success": False, "error": "参数非法"}, status=400)
+        query = body.get("query", "").strip()
+        filters = body.get("filters") if isinstance(body.get("filters"), dict) else None
+        queries = [q.strip() for q in query.split(",") if q.strip()]
+        try:
+            if not queries:
+                if sort == "random":
+                    _, total = await asyncio.to_thread(
+                        animadex.search, http, mode, "", 1, "count", animadex.PAGE_SIZE, filters,
+                    )
+                    if total > 0:
+                        import math
+                        import random
+                        page = random.randint(1, max(1, math.ceil(total / animadex.PAGE_SIZE)))
+                results, total = await asyncio.to_thread(
+                    animadex.search, http, mode, "", page, sort, animadex.PAGE_SIZE, filters,
+                )
+            else:
+                results, total = await asyncio.to_thread(
+                    animadex.batch_search, http, mode, queries, page, sort, animadex.PAGE_SIZE, filters,
+                )
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+        return web.json_response({"success": True, "results": results, "total": total})
+
+    @server.routes.post("/danbooru_browser/animadex/facets")
+    async def animadex_facets(request: web.Request) -> web.Response:
+        """AnimaDex 分面筛选器候选。"""
+        try:
+            body = await request.json()
+            mode = body.get("mode", "characters")
+            if mode not in animadex.MODES:
+                return web.json_response({"success": False, "error": "参数非法"}, status=400)
+            data = await asyncio.to_thread(animadex.facets, http, mode)
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+        return web.json_response({"success": True, "facets": data})
 
     @server.routes.get("/danbooru_browser/capabilities")
     async def capabilities(request: web.Request) -> web.Response:
