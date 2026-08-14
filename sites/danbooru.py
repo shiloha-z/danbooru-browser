@@ -73,16 +73,29 @@ class DanbooruSite:
                 # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
                 params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
                 data = self._http.get_json(url, params=params, auth=auth)
-            elif e.status == 422 and any(t.startswith("-") for t in params["tags"].split()) \
-                    and re.search(r"\border:", params["tags"]):
-                # danbooru:正标签+负标签(排除标签或 -video)+order 元标签组合稳定 422
-                # (2026-08 实测,参数形式的 order 不生效);去掉 order 令牌重试,排序降级为默认
-                params = {**params, "tags": re.sub(r"\s*order:[^\s]*", "", params["tags"]).strip()}
-                data = self._http.get_json(url, params=params, auth=auth)
+            elif e.status == 422 and any(t.startswith("-") for t in params["tags"].split()):
+                # danbooru 422 组合(2026-08 实测):单负标签+order,或多个负标签。
+                # 重试:去掉 order,只保留第一个负标签,其余负标签客户端过滤
+                # (danbooru 无法服务端表达多排除;分页计数按过滤后算,可接受偏差)。
+                tokens = params["tags"].split()
+                negatives = [t for t in tokens if t.startswith("-")]
+                kept = [t for t in tokens if (not t.startswith("-") or t == negatives[0]) and not t.startswith("order:")]
+                data = self._http.get_json(
+                    url, params={**params, "tags": " ".join(kept)}, auth=auth,
+                )
+                data = [d for d in data if not self._matches_negatives(d, negatives[1:])]
             else:
                 raise
         posts = tuple(parse_post(d, "danbooru") for d in data)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
+
+    @staticmethod
+    def _matches_negatives(d: dict[str, Any], negatives: list[str]) -> bool:
+        """客户端负标签过滤:多负标签 422 降级时,其余负标签按 tag_string 匹配。"""
+        if not negatives:
+            return False
+        tag_set = set((d.get("tag_string") or "").split())
+        return any(neg[1:] in tag_set for neg in negatives)
 
     def _auth(self) -> tuple[str, str] | None:
         """danbooru 可选基本认证(login/api_key);未配置则匿名(限速但可用)。"""

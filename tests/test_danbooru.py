@@ -205,6 +205,19 @@ class TestSearch:
             site.search(SearchConditions(site="danbooru", tags=("1girl",), per_page=20), 1)
         assert len(http.json_calls) == 1  # 无负标签不重试
 
+    def test_multi_exclude_422_filters_remaining_client_side(self):
+        # 多负标签(danbooru 恒 422,实测):重试只保留第一个负标签,其余客户端过滤
+        http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"], status=422)
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(1, tags=("1girl", "blood")).raw),  # 含第二个负标签 → 客户端过滤
+            dict(make_post(2, tags=("1girl",)).raw),
+        ]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", tags=("1girl",),
+                                              exclude_tags=("nude", "blood"), per_page=20), 1)
+        assert [p.id for p in result.posts] == [2]
+        assert http.json_calls[1][1]["tags"] == "1girl -nude"  # 重试:去 order + 单负标签
+
     def test_hide_videos_422_retries_without_order(self):
         # hide_videos 产生的 -video 负标签同样触发 422 降级重试(之前只认 exclude_tags)
         http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"], status=422)
