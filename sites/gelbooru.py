@@ -83,6 +83,9 @@ class GelbooruSite:
         }
         data = self._http.get_json(f"{self.BASE_URL}", params=params)
         posts = tuple(parse_post(d, "gelbooru") for d in (data.get("post") or []) if isinstance(d, dict))
+        if conditions.hide_videos:
+            # -video 标签覆盖绝大多数视频帖;客户端再按 animated 兜底(gif/缺标签)
+            posts = tuple(p for p in posts if not p.animated)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
     def fetch_image(self, post: Post, url: str | None = None) -> bytes:

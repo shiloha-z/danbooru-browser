@@ -113,6 +113,15 @@ class TestSearch:
         site.search(SearchConditions(site="gelbooru", hide_videos=True, per_page=20), 1)
         assert "-video" in http.json_calls[-1][1]["tags"]
 
+    def test_hide_videos_filters_animated_client_side(self):
+        http = FakeHttp()
+        http.json_responses["https://gelbooru.com/index.php"] = {
+            "post": [raw_post(1, image="a.webm"), raw_post(2), raw_post(3)],
+        }
+        site = GelbooruSite(http, credentials=CREDS)
+        result = site.search(SearchConditions(site="gelbooru", hide_videos=True, per_page=20), 1)
+        assert [p.id for p in result.posts] == [2, 3]
+
     def test_missing_credentials_raise_clear_error(self):
         http = FakeHttp()
         site = GelbooruSite(http, credentials={})  # 未配置凭据

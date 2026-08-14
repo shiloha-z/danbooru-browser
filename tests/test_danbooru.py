@@ -161,6 +161,16 @@ class TestSearch:
                                      hide_videos=True, per_page=20), 1)
         assert "-video" in http.json_calls[-1][1]["tags"]
 
+    def test_hide_videos_filters_animated_client_side(self):
+        # -video 标签外,客户端按 animated 兜底(gif/缺标签的视频帖)
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            raw_post(1, file_ext="webm"), raw_post(2, file_ext="gif"), raw_post(3),
+        ]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", hide_videos=True, per_page=20), 1)
+        assert [p.id for p in result.posts] == [3]
+
     def test_transport_error_propagates(self):
         http = FakeHttp()  # no canned response
         site = DanbooruSite(http)

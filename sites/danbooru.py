@@ -87,6 +87,10 @@ class DanbooruSite:
             else:
                 raise
         posts = tuple(parse_post(d, "danbooru") for d in data)
+        if conditions.hide_videos:
+            # -video 标签覆盖绝大多数视频帖;客户端再按 animated 兜底
+            # (gif 动画、缺标签的视频帖;分页计数按过滤后算,可接受偏差)
+            posts = tuple(p for p in posts if not p.animated)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
     @staticmethod
