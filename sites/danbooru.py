@@ -28,7 +28,7 @@ def parse_post(d: dict[str, Any], site: str) -> Post:
         score=int(d.get("score", 0) or 0),
         author=" ".join(artist.split()),
         raw=d,
-        animated=file_ext in ("webm", "gif", "swf"),
+        animated=file_ext in ("webm", "gif", "swf", "mp4"),
     )
 
 

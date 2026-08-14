@@ -43,6 +43,11 @@ class TestParsePost:
         p = parse_post(raw_image(nsfw=True), "civitai")
         assert p.rating == "e"
 
+    def test_mp4_video_marked_animated(self):
+        # civitai 有 mp4 视频:必须按动画处理,否则下载视频字节被当图片转换崩溃
+        p = parse_post(raw_image(url="https://image.civitai.com/tk/9/original=true/9.mp4"), "civitai")
+        assert p.animated
+
     def test_prompt_reads_from_meta(self):
         p = parse_post(raw_image(), "civitai")
         assert p.raw["meta"]["prompt"] == "1girl, masterpiece"

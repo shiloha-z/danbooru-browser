@@ -23,6 +23,7 @@ _SORT_MAP = {"new": "Newest", "score": "Most Reactions"}
 def parse_post(d: dict[str, Any], site: str = "civitai") -> Post:
     url = d.get("url") or ""
     small = url.replace("original=true", "original=false") if url else ""
+    file_ext = url.rsplit(".", 1)[-1].lower() if url else ""
     return Post(
         id=int(d["id"]),
         site=site,
@@ -34,7 +35,7 @@ def parse_post(d: dict[str, Any], site: str = "civitai") -> Post:
         score=0,
         author="",
         raw=d,
-        animated=False,
+        animated=file_ext in ("webm", "gif", "swf", "mp4"),  # civitai 有 mp4 视频
     )
 
 
