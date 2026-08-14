@@ -11,14 +11,7 @@ import { app } from "../../scripts/app.js";
 const API_BASE = "/danbooru_browser";
 const RATING_LABEL = { g: "普通", s: "敏感", q: "可疑", e: "R18" };
 const RATING_COLOR = { g: "#4f8cff", s: "#ffb454", q: "#ff9d45", e: "#ff7ab6" };
-const DEFAULT_CONDITIONS = {
-  site: "danbooru",
-  tags: [],
-  exclude_tags: [],
-  ratings: ["g", "s", "q", "e"],
-  sort: "new",
-  per_page: 40,
-};
+const ALL_RATINGS = ["g", "s", "q", "e"];
 
 const PANEL_CSS = `
 .dbb-panel{width:100%;min-width:0;background:#1d1d22;border:1px solid #3a3a42;border-radius:8px;
@@ -31,6 +24,8 @@ const PANEL_CSS = `
 .dbb-panel button:hover:not(:disabled),.dbb-lightbox button:hover{background:#3e3e49}
 .dbb-panel button.primary{background:#4f8cff;border-color:#4f8cff;color:#fff;font-weight:600}
 .dbb-panel button:disabled,.dbb-lightbox button:disabled{opacity:.45;cursor:not-allowed}
+.dbb-chip{background:transparent;border:1px solid #3a3a42;border-radius:10px;padding:1px 8px;font-size:11px;cursor:pointer;opacity:.45}
+.dbb-chip.on{opacity:1;border-color:currentColor}
 .dbb-row{display:flex;gap:6px;align-items:center}
 .dbb-mode{display:flex;gap:2px;background:#141419;border:1px solid #3a3a42;border-radius:5px;padding:2px}
 .dbb-mode button{border:none;background:none;padding:2px 9px;border-radius:4px}
@@ -99,8 +94,8 @@ class BrowserPanel {
           <option disabled>gelbooru (后续版本)</option>
           <option disabled>civitai (后续版本)</option>
         </select>
-        <input type="text" id="dbb-search" disabled title="T2 开放" placeholder="标签搜索(T2)…" style="flex:1">
-        <input type="text" id="dbb-exclude" disabled title="T2 开放" placeholder="排除标签(T2)…">
+        <input type="text" id="dbb-search" placeholder="标签搜索(空格分隔)…" style="flex:1">
+        <input type="text" id="dbb-exclude" disabled title="T2 后续票" placeholder="排除标签(后续版本)…">
         <button class="primary" id="dbb-search-btn">搜索</button>
       </div>
       <div class="dbb-row">
@@ -115,16 +110,31 @@ class BrowserPanel {
       </div>
       <div class="dbb-row">
         <span style="color:#8a8a94;font-size:11px">评级</span>
-        ${["g", "s", "q", "e"].map((r) => `<span class="dbb-chip" data-r="${r}" style="color:${RATING_COLOR[r]};border:1px solid ${RATING_COLOR[r]}33;border-radius:10px;padding:1px 8px;font-size:11px;opacity:.8">${RATING_LABEL[r]}</span>`).join("")}
-        <select id="dbb-sort" disabled style="margin-left:auto"><option>最新</option><option disabled>评分 (后续版本)</option><option disabled>随机 (后续版本)</option></select>
+        ${ALL_RATINGS.map((r) => `<button class="dbb-chip on" data-r="${r}" style="color:${RATING_COLOR[r]}">${RATING_LABEL[r]}</button>`).join("")}
+        <select id="dbb-sort" style="margin-left:auto">
+          <option value="new">最新</option>
+          <option value="score">评分</option>
+          <option value="random">随机</option>
+        </select>
         <span style="color:#8a8a94;font-size:11px">每页</span>
-        <select id="dbb-perpage" disabled><option>40</option><option disabled>20 (后续版本)</option><option disabled>60 (后续版本)</option></select>
+        <select id="dbb-perpage">
+          <option value="20">20</option>
+          <option value="40" selected>40</option>
+          <option value="60">60</option>
+        </select>
       </div>
       <div class="dbb-status"><span id="dbb-status-text">普通 · 游标 — · 已选 — · 列表 0 · 失败 0</span><span id="dbb-err" class="err" style="margin-left:auto"></span></div>
       <div class="dbb-grid" id="dbb-grid"></div>
       <div class="dbb-footer" id="dbb-footer">未选中 — 点击缩略图选中;执行队列输出所选帖子</div>
     `;
     el.querySelector("#dbb-search-btn").onclick = () => this.doSearch();
+    el.querySelectorAll(".dbb-chip").forEach((c) => {
+      c.onclick = () => {
+        // 至少保留一个评级:全关 = 不过滤,语义不清
+        if (c.classList.contains("on") && el.querySelectorAll(".dbb-chip.on").length === 1) return;
+        c.classList.toggle("on");
+      };
+    });
     this.grid = el.querySelector("#dbb-grid");
     this.footer = el.querySelector("#dbb-footer");
     this.statusText = el.querySelector("#dbb-status-text");
@@ -133,16 +143,41 @@ class BrowserPanel {
   }
 
   init() {
-    // 重开工作流:会话在 widget 里,自动重拉第 1 页(ADR-0002)
+    // 重开工作流:会话在 widget 里,控件还原筛选条件并重拉第 1 页(ADR-0002)
     const state = parseWidget(this.widget?.value);
-    if (state?.conditions) this.doSearch();
-    else this.renderEmpty("未浏览 — 点击「搜索」加载 danbooru 最新帖子");
+    if (state?.conditions) {
+      this.syncControls(state.conditions);
+      this.doSearch();
+    } else {
+      this.renderEmpty("未浏览 — 点击「搜索」加载 danbooru 最新帖子");
+    }
+  }
+
+  readConditions() {
+    const tags = this.el.querySelector("#dbb-search").value.trim().split(/\s+/).filter(Boolean);
+    const ratings = [...this.el.querySelectorAll(".dbb-chip.on")].map((c) => c.dataset.r);
+    return {
+      site: this.el.querySelector("#dbb-site").value,
+      tags,
+      ratings,
+      sort: this.el.querySelector("#dbb-sort").value,
+      per_page: +this.el.querySelector("#dbb-perpage").value,
+    };
+  }
+
+  syncControls(c) {
+    this.el.querySelector("#dbb-search").value = (c.tags || []).join(" ");
+    this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
+      chip.classList.toggle("on", (c.ratings || ALL_RATINGS).includes(chip.dataset.r));
+    });
+    this.el.querySelector("#dbb-sort").value = c.sort || "new";
+    this.el.querySelector("#dbb-perpage").value = String(c.per_page || 40);
   }
 
   async doSearch() {
     this.setError("");
     try {
-      const conditions = { ...DEFAULT_CONDITIONS, site: this.el.querySelector("#dbb-site").value };
+      const conditions = this.readConditions();
       const res = await apiSearch(this.widget?.value || "", conditions);
       if (res.error) {
         this.setError(res.error);

@@ -66,7 +66,7 @@ class TestSearch:
         assert url == "https://danbooru.donmai.us/posts.json"
         assert params["page"] == 3
         assert params["limit"] == 40
-        assert params["tags"] == "1girl"
+        assert params["tags"] == "1girl order:id_desc"  # 默认 sort=new → 显式最新映射
         assert [p.id for p in result.posts] == [1, 2]
         assert result.page == 3
         assert not result.has_next  # 2 < limit 40
@@ -80,7 +80,7 @@ class TestSearch:
         result = site.search(SearchConditions(site="danbooru", per_page=2), 1)
         assert result.has_next
 
-    def test_rating_and_sort_mapped_into_tags(self):
+    def test_partial_ratings_joined_with_or(self):
         http = FakeHttp()
         http.json_responses["https://danbooru.donmai.us/posts.json"] = []
         site = DanbooruSite(http)
@@ -90,8 +90,35 @@ class TestSearch:
             1,
         )
         tags_param = http.json_calls[-1][1]["tags"]
-        for token in ("1girl", "rating:g", "rating:e", "order:score"):
-            assert token in tags_param
+        # danbooru 空格分隔是 AND:多选评级必须用 ~(OR),否则选多个评级必然空结果
+        assert "rating:g~rating:e" in tags_param
+        assert "order:score" in tags_param
+
+    def test_all_ratings_selected_emits_no_rating_filter(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        site = DanbooruSite(http)
+        site.search(SearchConditions(site="danbooru", tags=("1girl",), per_page=20), 1)
+        tags_param = http.json_calls[-1][1]["tags"]
+        assert "rating:" not in tags_param
+
+    def test_single_rating_selected_is_plain_filter(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        site = DanbooruSite(http)
+        site.search(SearchConditions(site="danbooru", ratings=frozenset({"e"}), per_page=20), 1)
+        tags_param = http.json_calls[-1][1]["tags"]
+        assert tags_param == "rating:e order:id_desc"
+
+    def test_sort_mapping(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        site = DanbooruSite(http)
+        site.search(SearchConditions(site="danbooru", sort="random", per_page=20), 1)
+        assert http.json_calls[-1][1]["tags"] == "order:random"
+        site.search(SearchConditions(site="danbooru", sort="new", per_page=20), 1)
+        # 最新显式映射 order:id_desc(danbooru 的 order:id 是升序旧帖优先)
+        assert http.json_calls[-1][1]["tags"] == "order:id_desc"
 
     def test_exclude_tags_mapped_with_dash(self):
         http = FakeHttp()
