@@ -123,6 +123,7 @@ class BrowserPanel {
           <option value="gelbooru">gelbooru</option>
           <option disabled>civitai (后续版本)</option>
         </select>
+        <button id="dbb-settings" title="API 凭据设置">⚙</button>
         <div class="dbb-searchwrap">
           <input type="text" id="dbb-search" placeholder="标签搜索(逗号分隔)…">
           <div class="dbb-ac" id="dbb-ac"></div>
@@ -172,6 +173,7 @@ class BrowserPanel {
       </div>
     `;
     el.querySelector("#dbb-search-btn").onclick = () => this.doSearch();
+    el.querySelector("#dbb-settings").onclick = () => this.openSettings();
     el.querySelector("#dbb-site").addEventListener("change", async () => {
       // 切站时按能力调整评级控件(gelbooru 只能单选)
       try {
@@ -604,6 +606,95 @@ class BrowserPanel {
       text.innerHTML = `已选 <b>#${selId}</b>`;
     }
     this.updateListToggle(selId);
+  }
+
+  openSettings() {
+    // 凭据设置:仅写本地 credentials.json,绝不进工作流 JSON(T10)
+    const overlay = document.createElement("div");
+    overlay.className = "dbb-lightbox";
+    overlay.innerHTML = `
+      <div class="dbb-lb-bar"><b>凭据设置</b><button class="dbb-lb-close">关闭</button></div>
+      <div style="display:flex;flex-direction:column;gap:8px;background:#141419;border:1px solid #3a3a42;border-radius:8px;padding:12px;min-width:320px">
+        <div><b>danbooru</b> <span style="color:#8a8a94;font-size:11px">(可选,匿名可用)</span><button class="dbb-cred-clear" data-site="danbooru" style="margin-left:8px">清除</button></div>
+        <div style="display:flex;gap:6px">
+          <input id="dbb-cred-dan-login" placeholder="登录名" style="flex:1">
+          <input id="dbb-cred-dan-key" placeholder="api_key" style="flex:2">
+        </div>
+        <div><b>gelbooru</b> <span style="color:#8a8a94;font-size:11px">(必填)</span><button class="dbb-cred-clear" data-site="gelbooru" style="margin-left:8px">清除</button></div>
+        <div style="display:flex;gap:6px">
+          <input id="dbb-cred-gel-uid" placeholder="user_id" style="flex:1">
+          <input id="dbb-cred-gel-key" placeholder="api_key" style="flex:2">
+        </div>
+        <button class="dbb-cred-save" style="background:#4f8cff;border:none;color:#fff;border-radius:5px;padding:5px">保存</button>
+        <div class="dbb-cred-status" style="color:#8a8a94;font-size:11px">留空 = 保持不变;清除需编辑 credentials.json</div>
+      </div>
+    `;
+    const inputs = {
+      danbooru: [overlay.querySelector("#dbb-cred-dan-login"), overlay.querySelector("#dbb-cred-dan-key")],
+      gelbooru: [overlay.querySelector("#dbb-cred-gel-uid"), overlay.querySelector("#dbb-cred-gel-key")],
+    };
+    const status = overlay.querySelector(".dbb-cred-status");
+    const refresh = async () => {
+      for (const [site, pair] of Object.entries(inputs)) {
+        try {
+          const resp = await fetch(`${API_BASE}/credentials?site=${site}`);
+          const data = await resp.json();
+          pair.forEach((input) => {
+            input.placeholder = data.configured ? "已配置,留空保持" : input.getAttribute("data-base") || input.placeholder;
+          });
+        } catch { /* 忽略 */ }
+      }
+    };
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    overlay.querySelector(".dbb-lb-close").onclick = close;
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll(".dbb-cred-clear").forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const resp = await fetch(`${API_BASE}/credentials`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ site: btn.dataset.site, action: "clear" }),
+          });
+          const data = await resp.json();
+          if (data.error) throw new Error(data.error);
+          status.textContent = `已清除 ${btn.dataset.site} 的凭据`;
+          refresh();
+        } catch (e) {
+          status.textContent = `清除失败: ${e.message || e}`;
+        }
+      };
+    });
+    overlay.querySelector(".dbb-cred-save").onclick = async () => {
+      const jobs = [
+        ["danbooru", { login: inputs.danbooru[0].value.trim(), api_key: inputs.danbooru[1].value.trim() }],
+        ["gelbooru", { user_id: inputs.gelbooru[0].value.trim(), api_key: inputs.gelbooru[1].value.trim() }],
+      ];
+      try {
+        for (const [site, fields] of jobs) {
+          const resp = await fetch(`${API_BASE}/credentials`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ site, fields }),
+          });
+          const data = await resp.json();
+          if (data.error) throw new Error(data.error);
+        }
+        status.textContent = "已保存(无需重启,立即生效)";
+        inputs.danbooru.forEach((i) => { i.value = ""; });
+        inputs.gelbooru.forEach((i) => { i.value = ""; });
+        refresh();
+      } catch (e) {
+        status.textContent = `保存失败: ${e.message || e}`;
+      }
+    };
+    document.body.appendChild(overlay);
+    refresh();
   }
 
   updateListToggle(selId) {

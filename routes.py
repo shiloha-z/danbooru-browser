@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 
 from aiohttp import ClientConnectionError, web
 from server import PromptServer
@@ -15,7 +16,10 @@ from server import PromptServer
 from core.browser import Browser
 from core.errors import StateError, TransportError
 from core.model import Post, SearchConditions
+from sites.credentials import clear_credentials, get_credentials, save_credentials
 from sites.http import HttpAdapter, image_content_type, is_allowed_image_url
+
+SITES = ("danbooru", "gelbooru", "civitai")  # 凭据设置入口;civitai 随 T6 接入
 
 
 def display_post(post: Post) -> dict:
@@ -30,12 +34,15 @@ def display_post(post: Post) -> dict:
 
 
 def _local_origin_ok(request: web.Request) -> bool:
-    """浏览器请求校验 Origin:防任意网页把本机 ComfyUI 当代理跳板(代理来自请求体)。"""
+    """浏览器请求校验 Origin:防任意网页把本机 ComfyUI 当代理跳板或写凭据。
+
+    netloc 精确比较:拒绝 host.evil.com 这类前缀欺骗。
+    """
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
     if not origin:  # 非浏览器客户端(无 Origin/Referer)
         return True
-    host = request.host
-    return origin.startswith(f"http://{host}") or origin.startswith(f"https://{host}")
+    parsed = urllib.parse.urlparse(origin)
+    return parsed.scheme in ("http", "https") and parsed.netloc == request.host
 
 
 def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> None:
@@ -131,6 +138,35 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
                 "has_next": result.has_next,
             }
         )
+
+    @server.routes.get("/danbooru_browser/credentials")
+    async def credentials_get(request: web.Request) -> web.Response:
+        """查询站点凭据是否已配置(不回传 key 内容)。"""
+        site_name = request.query.get("site", "")
+        if site_name not in SITES:
+            return web.json_response({"error": "未知站点"}, status=400)
+        return web.json_response({"site": site_name, "configured": bool(get_credentials(site_name))})
+
+    @server.routes.post("/danbooru_browser/credentials")
+    async def credentials_set(request: web.Request) -> web.Response:
+        """面板保存凭据:非空字段合并写入本地文件,空字段保持原值;action=clear 清除。"""
+        if not _local_origin_ok(request):
+            return web.json_response({"error": "非法的请求来源"}, status=403)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "请求体必须是 JSON"}, status=400)
+        site_name = body.get("site")
+        if site_name not in SITES:
+            return web.json_response({"error": "未知站点"}, status=400)
+        if body.get("action") == "clear":
+            clear_credentials(site_name)
+        else:
+            fields = body.get("fields")
+            if not isinstance(fields, dict):
+                return web.json_response({"error": "fields 必须是对象"}, status=400)
+            save_credentials(site_name, {k: str(v).strip() for k, v in fields.items()})
+        return web.json_response({"site": site_name, "configured": bool(get_credentials(site_name))})
 
     @server.routes.get("/danbooru_browser/capabilities")
     async def capabilities(request: web.Request) -> web.Response:

@@ -10,6 +10,7 @@ from core.errors import TransportError
 from core.model import Post, SearchConditions, SearchResult
 from core.site import Site, SiteCapabilities
 
+from .credentials import get_credentials
 from .http import HttpAdapter
 
 
@@ -61,23 +62,31 @@ class DanbooruSite:
         tags += [f"-{t}" for t in conditions.exclude_tags]
         url = f"{self.BASE_URL}/posts.json"
         params = {"page": page, "limit": conditions.per_page, "tags": " ".join(tags)}
+        auth = self._auth()
         try:
-            data = self._http.get_json(url, params=params)
+            data = self._http.get_json(url, params=params, auth=auth)
         except TransportError as e:
             if e.status == 500 and conditions.sort == "score" and "order:score" in tags:
                 # danbooru 对含普通标签的 order:score 查询稳定 500(2026-08 实测);
                 # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
                 params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
-                data = self._http.get_json(url, params=params)
+                data = self._http.get_json(url, params=params, auth=auth)
             elif e.status == 422 and conditions.exclude_tags and re.search(r"\border:", params["tags"]):
                 # danbooru:正标签+负标签+order 元标签组合稳定 422(2026-08 实测,
                 # 参数形式的 order 不生效);去掉 order 令牌重试,排序降级为默认
                 params = {**params, "tags": re.sub(r"\s*order:[^\s]*", "", params["tags"]).strip()}
-                data = self._http.get_json(url, params=params)
+                data = self._http.get_json(url, params=params, auth=auth)
             else:
                 raise
         posts = tuple(parse_post(d, "danbooru") for d in data)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
+
+    def _auth(self) -> tuple[str, str] | None:
+        """danbooru 可选基本认证(login/api_key);未配置则匿名(限速但可用)。"""
+        creds = get_credentials("danbooru") or {}
+        if creds.get("login") and creds.get("api_key"):
+            return (str(creds["login"]), str(creds["api_key"]))
+        return None
 
     def fetch_image(self, post: Post, url: str | None = None) -> bytes:
         return self._http.get_bytes(url or post.file_url)

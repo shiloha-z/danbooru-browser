@@ -28,8 +28,9 @@ class FlakyHttp(FakeHttp):
         self._fail_urls = set(fail_once_urls)
         self._status = status
 
-    def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
-        self.json_calls.append((url, params))
+    def get_json(self, url: str, params: dict[str, Any] | None = None,
+                 auth: tuple[str, str] | None = None) -> Any:
+        self.json_calls.append((url, params, auth))
         if url in self._fail_urls:
             self._fail_urls.remove(url)
             raise TransportError(f"HTTP {self._status}: {url}", status=self._status)
@@ -81,7 +82,7 @@ class TestSearch:
             SearchConditions(site="danbooru", tags=("1girl",), per_page=40),
             page=3,
         )
-        url, params = http.json_calls[-1]
+        url, params, _ = http.json_calls[-1]
         assert url == "https://danbooru.donmai.us/posts.json"
         assert params["page"] == 3
         assert params["limit"] == 40
@@ -195,6 +196,23 @@ class TestSearch:
             site.search(SearchConditions(site="danbooru", tags=("1girl",), per_page=20), 1)
         assert len(http.json_calls) == 1  # 无排除标签不重试
 
+    def test_basic_auth_when_configured(self, monkeypatch, tmp_path):
+        from sites import credentials as cred_mod
+        monkeypatch.setattr(cred_mod, "_CONFIG_PATH", str(tmp_path / "credentials.json"))
+        cred_mod.save_credentials("danbooru", {"login": "zeloliu", "api_key": "secret"})
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        DanbooruSite(http).search(SearchConditions(site="danbooru", per_page=20), 1)
+        assert http.json_calls[-1][2] == ("zeloliu", "secret")
+
+    def test_anonymous_without_credentials(self, monkeypatch, tmp_path):
+        from sites import credentials as cred_mod
+        monkeypatch.setattr(cred_mod, "_CONFIG_PATH", str(tmp_path / "empty.json"))
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        DanbooruSite(http).search(SearchConditions(site="danbooru", per_page=20), 1)
+        assert http.json_calls[-1][2] is None  # 未配置 → 匿名(行为不劣化)
+
     def test_fetch_image(self):
         http = FakeHttp()
         http.bytes_responses["https://cdn.example/1.jpg"] = b"\xff\xd8"
@@ -209,7 +227,7 @@ class TestSearch:
         ]
         site = DanbooruSite(http)
         assert site.autocomplete_tags("1girl") == ["1girl", "1girl_solo"]
-        url, params = http.json_calls[-1]
+        url, params, _ = http.json_calls[-1]
         assert params["search[query]"] == "1girl"
         assert params["search[type]"] == "tag_query"
 

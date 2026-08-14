@@ -21,8 +21,9 @@ class FakeHttp:
         self.json_calls: list[tuple[str, dict[str, Any] | None]] = []
         self.bytes_calls: list[str] = []
 
-    def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
-        self.json_calls.append((url, params))
+    def get_json(self, url: str, params: dict[str, Any] | None = None,
+                 auth: tuple[str, str] | None = None) -> Any:
+        self.json_calls.append((url, params, auth))
         try:
             return self.json_responses[url]
         except KeyError:

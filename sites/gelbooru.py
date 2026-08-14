@@ -16,6 +16,8 @@ from core.site import Site, SiteCapabilities
 from .credentials import get_credentials
 from .http import HttpAdapter
 
+_UNSET = object()  # 哨兵:未注入 → 每次请求实时读凭据文件
+
 
 def parse_post(d: dict[str, Any], site: str) -> Post:
     file_ext = (d.get("image") or "").rsplit(".", 1)[-1].lower()
@@ -42,16 +44,18 @@ class GelbooruSite:
 
     def __init__(self, http: HttpAdapter, credentials: dict[str, Any] | None = None):
         self._http = http
-        self._credentials = credentials if credentials is not None else get_credentials("gelbooru")
+        # 注入(测试)或实时读文件:面板设置保存后立即生效
+        self._credentials = credentials if credentials is not None else _UNSET
 
     def _auth_params(self) -> dict[str, str]:
         """本地配置缺失是客户端状态错误(400),不是上游故障(502)。"""
-        missing = [k for k in ("user_id", "api_key") if not self._credentials or not self._credentials.get(k)]
+        creds = self._credentials if self._credentials is not _UNSET else get_credentials("gelbooru")
+        missing = [k for k in ("user_id", "api_key") if not creds or not creds.get(k)]
         if missing:
             raise StateError(
                 f"gelbooru API 需要凭据:在节点目录 credentials.json 配置 {'/'.join(missing)}"
             )
-        return {"api_key": str(self._credentials["api_key"]), "user_id": str(self._credentials["user_id"])}
+        return {"api_key": str(creds["api_key"]), "user_id": str(creds["user_id"])}
 
     def search(self, conditions: SearchConditions, page: int) -> SearchResult:
         all_ratings = self.capabilities.ratings  # 能力表是唯一来源(ADR-0003)

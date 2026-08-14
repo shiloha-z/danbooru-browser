@@ -68,7 +68,8 @@ def proxy_config(proxy: str) -> dict[str, str] | None:
 
 
 class HttpAdapter(Protocol):
-    def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any: ...
+    def get_json(self, url: str, params: dict[str, Any] | None = None,
+                 auth: tuple[str, str] | None = None) -> Any: ...
 
     def get_bytes(self, url: str) -> bytes: ...
 
@@ -105,9 +106,10 @@ class RequestsHttpAdapter:
         """设置全局代理(搜索/图片/补全共用);空值恢复系统代理(env/trust_env)。"""
         self._session.proxies = proxy_config(proxy) or {}
 
-    def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
+    def get_json(self, url: str, params: dict[str, Any] | None = None,
+                 auth: tuple[str, str] | None = None) -> Any:
         self._throttle()  # API 调用限流;图片走 CDN,不限
-        return self._check(self._session.get(url, params=params, timeout=self._timeout), url).json()
+        return self._check(self._session.get(url, params=params, timeout=self._timeout, auth=auth), url).json()
 
     def _headers_for(self, url: str) -> dict[str, str]:
         referer = referer_for(url)

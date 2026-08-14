@@ -61,7 +61,7 @@ class TestSearch:
         result = site.search(
             SearchConditions(site="gelbooru", tags=("1girl",), per_page=40), page=3,
         )
-        url, params = http.json_calls[-1]
+        url, params, _ = http.json_calls[-1]
         assert url == "https://gelbooru.com/index.php"
         assert params["pid"] == 2  # 页码 0 起:page-1
         assert params["limit"] == 40
@@ -119,6 +119,19 @@ class TestSearch:
         site = GelbooruSite(http, credentials=CREDS)
         result = site.search(SearchConditions(site="gelbooru", per_page=20), 1)
         assert result.posts == ()
+
+    def test_credentials_read_fresh_at_request_time(self, monkeypatch, tmp_path):
+        from sites import credentials as cred_mod
+        monkeypatch.setattr(cred_mod, "_CONFIG_PATH", str(tmp_path / "credentials.json"))
+        cred_mod.save_credentials("gelbooru", {"user_id": "1", "api_key": "k1"})
+        http = FakeHttp()
+        http.json_responses["https://gelbooru.com/index.php"] = {"post": []}
+        site = GelbooruSite(http)  # 不注入 → 每次请求实时读文件
+        site.search(SearchConditions(site="gelbooru", per_page=20), 1)
+        assert http.json_calls[-1][1]["api_key"] == "k1"
+        cred_mod.save_credentials("gelbooru", {"api_key": "k2"})  # 面板保存更新
+        site.search(SearchConditions(site="gelbooru", per_page=20), 1)
+        assert http.json_calls[-1][1]["api_key"] == "k2"  # 立即生效,无需重启
 
     def test_fetch_image(self):
         http = FakeHttp()
