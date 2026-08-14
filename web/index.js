@@ -540,8 +540,10 @@ app.registerExtension({
     const onExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (outputs) {
       onExecuted?.apply(this, arguments);
-      if (outputs?.SESSION && this._browserPanel) {
-        this._browserPanel.applyStateOnly(String(outputs.SESSION));
+      // ui 字典的值是数组([value]),兼容非数组
+      const s = Array.isArray(outputs?.SESSION) ? outputs.SESSION[0] : outputs?.SESSION;
+      if (s != null && this._browserPanel) {
+        this._browserPanel.applyStateOnly(String(s));
       }
     };
   },
