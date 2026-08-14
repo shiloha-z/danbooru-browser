@@ -595,6 +595,44 @@ class TestFailureStrategy:
         assert session.state.failed == []  # 新搜索重置失败标记
 
 
+class TestPageCap:
+    """会话页数上限:自动/翻页不无限膨胀,游标/标记一致维护。"""
+
+    def test_cap_keeps_5_newest_pages(self):
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=n, posts=[make_post(n)]) for n in range(1, 9)],
+            cursor=7, selection=8,
+        )
+        build_browser(FakeHttp())._cap_pages(state)
+        assert [pg.number for pg in state.pages] == [4, 5, 6, 7, 8]  # 保留最新 5 页
+        assert state.cursor == 4  # 丢弃 3 页(1-3)→ 游标平移 7-3
+        assert state.selection == 8  # 选中在保留页中,不清
+
+    def test_cap_clears_markers_in_dropped_pages(self):
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=n, posts=[make_post(n)]) for n in range(1, 7)],
+            cursor=5, selection=1, last_output=1, failed=[1, 6],
+        )
+        build_browser(FakeHttp())._cap_pages(state)
+        assert [pg.number for pg in state.pages] == [2, 3, 4, 5, 6]
+        assert state.selection is None  # 选中 1 在被丢弃页(第 1 页)→ 清理
+        assert state.last_output is None  # 红标 1 被清理
+        assert state.failed == [6]  # 失败标记 1 清理,6 保留
+
+    def test_goto_page_applies_cap(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(9).raw)]
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=n, posts=[make_post(n)]) for n in range(1, 6)],
+        )))
+        session.goto_page(6)
+        assert [pg.number for pg in session.state.pages] == [2, 3, 4, 5, 6]
+
+
 class TestCurrentOutputMark:
     """T9 续:#19 红色=自动/列表当前输出,失败改 ✕ 徽标。"""
 

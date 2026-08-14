@@ -108,6 +108,25 @@ class Browser:
         if post_id not in state.failed:
             state.failed.append(post_id)
 
+    @staticmethod
+    def _cap_pages(state: SessionState, max_pages: int = 5) -> None:
+        """页数上限:自动模式/翻页无限累积会让会话 JSON 无限膨胀。
+
+        丢弃最旧页时:游标是已加载帖子的扁平索引 → 平移被丢弃页的帖子数;
+        选中/当前输出/失败标记在被丢弃页中 → 清理。列表模式靠占位语义兜底。
+        """
+        while len(state.pages) > max_pages:
+            oldest = min(state.pages, key=lambda pg: pg.number)
+            dropped_ids = {p.id for p in oldest.posts}
+            state.pages.remove(oldest)
+            if state.cursor > 0:
+                state.cursor = max(state.cursor - len(oldest.posts), 0)
+            if state.selection in dropped_ids:
+                state.selection = None
+            if state.last_output in dropped_ids:
+                state.last_output = None
+            state.failed = [i for i in state.failed if i not in dropped_ids]
+
     def _auto_output(self, state: SessionState, prefer_original: bool = False) -> tuple[Output, SessionState]:
         """自动模式:输出游标帖 → 游标 +1;失败/动画帖跳过并标红,继续下一张(T9)。"""
         if state.cursor < 0:  # 防御篡改的会话 JSON
@@ -128,6 +147,7 @@ class Browser:
                 if not result.posts:
                     return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
                 state.pages.append(Page(number=next_page, posts=list(result.posts)))
+                self._cap_pages(state)  # 自动模式长跑:会话页数有界
                 posts = state.loaded_posts()
             post = posts[state.cursor]
             output = self._post_output(state, post, prefer_original)
@@ -240,6 +260,7 @@ class Session:
             failed=self.state.failed,  # 失败标记跨翻页保留
             last_output=self.state.last_output,  # 当前输出红标跨翻页保留
         )
+        self._browser._cap_pages(self.state)  # 会话页数上限,防止无限膨胀
         return result
 
     def _post_index(self, post_id: int) -> int | None:
