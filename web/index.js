@@ -314,12 +314,12 @@ class BrowserPanel {
           box.innerHTML = "";
           data.tags.slice(0, 8).forEach((t) => {
             const div = document.createElement("div");
-            div.textContent = t;
+            div.textContent = t.cn ? `${t.tag}(${t.cn})` : t.tag;  // 中文别名补全显示「标签(中文)」
             div.onmousedown = () => {
               // 补全语义:替换正在输入的最后一段,而不是追加
               const words = input.value.trim().split(/[,\s]+/).filter(Boolean);
-              if (words.length) words[words.length - 1] = t;
-              else words.push(t);
+              if (words.length) words[words.length - 1] = t.tag;
+              else words.push(t.tag);
               input.value = words.join(" ");
               hide();
             };

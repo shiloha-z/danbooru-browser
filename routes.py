@@ -17,6 +17,7 @@ from core.browser import Browser
 from core.disk_cache import DiskImageCache
 from core.errors import StateError, TransportError
 from core.model import Post, SearchConditions
+from sites.cn_tags import is_chinese_query, match as match_cn_tags, query_token
 from sites.credentials import clear_credentials, get_credentials, save_credentials
 from sites.http import HttpAdapter, image_content_type, is_allowed_image_url
 
@@ -107,18 +108,25 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter,
 
     @server.routes.get("/danbooru_browser/tags")
     async def tags(request: web.Request) -> web.Response:
-        """标签补全候选:搜索框输入时的下拉建议(能力表驱动,ADR-0003)。"""
+        """标签补全候选:搜索框输入时的下拉建议(能力表驱动,ADR-0003)。
+
+        查询含中文 → 本地中文别名索引(返回 [{tag, cn}]);否则走 danbooru
+        补全(统一对象格式,cn 为空)。
+        """
         query = request.query.get("q", "").strip()
         if not query:
             return web.json_response({"tags": []})
         site = browser.site(request.query.get("site", "danbooru"))
         if not site.capabilities.has_tag_autocomplete:
             return web.json_response({"error": "该站点不支持标签补全"}, status=501)
+        if is_chinese_query(query):  # 中文别名补全(danbooru 本地索引);数据缺失时静默空候选
+            hits = match_cn_tags(query_token(query))
+            return web.json_response({"tags": [{"tag": h["tag"], "cn": h["cn"]} for h in hits]})
         try:
             names = await asyncio.to_thread(site.autocomplete_tags, query)
         except TransportError as e:
             return web.json_response({"error": str(e)}, status=502)
-        return web.json_response({"tags": names})
+        return web.json_response({"tags": [{"tag": n, "cn": ""} for n in names]})
 
     @server.routes.post("/danbooru_browser/page")
     async def page(request: web.Request) -> web.Response:
