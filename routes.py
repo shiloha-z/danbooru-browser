@@ -15,6 +15,7 @@ from server import PromptServer
 from core.browser import Browser
 from core.errors import StateError, TransportError
 from core.model import Post, SearchConditions
+from sites.http import HttpAdapter, is_allowed_image_url
 
 
 def display_post(post: Post) -> dict:
@@ -30,7 +31,19 @@ def display_post(post: Post) -> dict:
     }
 
 
-def setup_routes(server: PromptServer, browser: Browser) -> None:
+def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> None:
+    @server.routes.get("/danbooru_browser/image")
+    async def image(request: web.Request) -> web.Response:
+        """面板缩略图代理:浏览器直连 CDN 会被反爬 403(浏览器 UA 即拒),统一走后端。"""
+        url = request.query.get("url", "")
+        if not is_allowed_image_url(url):
+            return web.Response(status=400, text="不允许的图片地址")
+        try:
+            data = await asyncio.to_thread(http.get_bytes, url)
+        except TransportError as e:
+            return web.Response(status=502, text=str(e))
+        return web.Response(body=data, content_type="application/octet-stream")
+
     @server.routes.post("/danbooru_browser/search")
     async def search(request: web.Request) -> web.Response:
         try:

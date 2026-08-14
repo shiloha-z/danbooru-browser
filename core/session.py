@@ -71,7 +71,7 @@ def session_to_json(state: SessionState) -> str:
 
 def session_from_json(s: str) -> SessionState:
     """Parse workflow widget JSON; empty/blank is a fresh empty session."""
-    if not s or not s.strip():
+    if not isinstance(s, str) or not s.strip():
         return SessionState()
     try:
         d = json.loads(s)
@@ -79,4 +79,6 @@ def session_from_json(s: str) -> SessionState:
             raise ValueError("session must be a JSON object")
         return SessionState.from_dict(d)
     except (ValueError, TypeError, KeyError, AttributeError, IndexError) as e:
-        raise StateError(f"会话状态损坏: {e}") from e
+        raise StateError(
+            f"会话状态损坏: {e} — 请清空节点 session 输入框或重新添加节点"
+        ) from e

@@ -21,7 +21,7 @@ const DEFAULT_CONDITIONS = {
 };
 
 const PANEL_CSS = `
-.dbb-panel{width:440px;background:#1d1d22;border:1px solid #3a3a42;border-radius:8px;
+.dbb-panel{width:100%;min-width:0;background:#1d1d22;border:1px solid #3a3a42;border-radius:8px;
   padding:8px;font:12px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;color:#d8d8de;display:flex;flex-direction:column;gap:6px;height:100%;box-sizing:border-box}
 .dbb-panel input[type=text],.dbb-panel select{background:#141419;border:1px solid #3a3a42;color:#d8d8de;
   border-radius:5px;padding:3px 7px;outline:none;font:inherit;min-width:0}
@@ -38,9 +38,9 @@ const PANEL_CSS = `
 .dbb-status{color:#8a8a94;font-size:11px;background:#141419;border-radius:5px;padding:3px 8px;display:flex;gap:14px}
 .dbb-status b{color:#d8d8de}
 .dbb-status .err{color:#ff5f56}
-.dbb-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-height:120px;align-content:start}
+.dbb-grid{flex:1;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,140px);grid-auto-rows:140px;gap:6px;min-height:120px;align-content:start}
 .dbb-grid .thumb{position:relative;border-radius:5px;overflow:hidden;cursor:pointer;border:2px solid transparent;background:#141419}
-.dbb-grid .thumb img{width:100%;display:block;aspect-ratio:1;object-fit:cover}
+.dbb-grid .thumb img{width:100%;height:100%;display:block;object-fit:cover}
 .dbb-grid .thumb.sel{border-color:#4f8cff;box-shadow:0 0 0 2px rgba(79,140,255,.35)}
 .dbb-grid .thumb .badge{position:absolute;top:3px;left:3px;font-size:9px;border-radius:3px;padding:0 4px;color:#fff}
 .dbb-empty{color:#8a8a94;text-align:center;padding:34px 10px;grid-column:1/-1}
@@ -171,7 +171,7 @@ class BrowserPanel {
         (p) => `
       <div class="thumb" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
         <span class="badge" style="background:${RATING_COLOR[p.rating] || "#666"}">${p.id}</span>
-        <img src="${p.preview_url}" alt="#${p.id}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
+        <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
       </div>`
       )
       .join("");

@@ -29,8 +29,9 @@ class DanbooruBrowserNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                # 浏览会话 JSON(搜索条件、已加载页、游标、选中项);面板维护,随工作流序列化
-                "session": ("STRING", {"multiline": True, "default": ""}),
+                # 浏览会话 JSON(搜索条件、已加载页、游标、选中项);面板维护,随工作流序列化。
+                # 单行 widget:会话 JSON 很长,多行会让节点撑成巨型文本框。
+                "session": ("STRING", {"default": ""}),
             }
         }
 

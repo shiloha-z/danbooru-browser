@@ -9,9 +9,19 @@ from __future__ import annotations
 
 import threading
 import time
+import urllib.parse
 from typing import Any, Protocol
 
 from core.errors import TransportError
+
+# 面板图片代理只放行站点自己的 CDN 域名,防止把 ComfyUI 变成任意 URL 代理(SSRF)。
+# 新站点接入时在此追加其图片域名。
+IMAGE_HOST_ALLOWLIST = frozenset({"danbooru.donmai.us", "cdn.donmai.us"})
+
+
+def is_allowed_image_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    return parsed.scheme == "https" and parsed.hostname in IMAGE_HOST_ALLOWLIST
 
 
 class HttpAdapter(Protocol):
@@ -25,6 +35,8 @@ class RequestsHttpAdapter:
         import requests  # noqa: PLC0415 — lazy: tests never need requests installed
 
         self._session = requests.Session()
+        # danbooru 拒收 python-requests 默认 UA(403);应用 UA 不能带括号,否则同样 403(2026-08 实测)
+        self._session.headers["User-Agent"] = "danbooru-browser-comfyui/0.1"
         self._min_interval = min_interval
         self._timeout = timeout
         self._lock = threading.Lock()
