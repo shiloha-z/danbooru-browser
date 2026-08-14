@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sites.http import is_allowed_image_url, proxy_config
+from sites.http import image_content_type, is_allowed_image_url, proxy_config
 
 
 class TestIsAllowedImageUrl:
@@ -25,6 +25,19 @@ class TestIsAllowedImageUrl:
     def test_rejects_malformed(self):
         assert not is_allowed_image_url("")
         assert not is_allowed_image_url("cdn.donmai.us/relative.jpg")
+
+
+class TestImageContentType:
+    def test_known_extensions(self):
+        assert image_content_type("https://cdn.donmai.us/x/1.jpg") == "image/jpeg"
+        assert image_content_type("https://cdn.donmai.us/x/1.jpeg") == "image/jpeg"
+        assert image_content_type("https://cdn.donmai.us/x/1.png") == "image/png"
+        assert image_content_type("https://cdn.donmai.us/x/1.gif") == "image/gif"
+        assert image_content_type("https://cdn.donmai.us/x/1.webp") == "image/webp"
+
+    def test_unknown_extension_falls_back(self):
+        assert image_content_type("https://cdn.donmai.us/x/1.webm") == "application/octet-stream"
+        assert image_content_type("https://cdn.donmai.us/x/noext") == "application/octet-stream"
 
 
 class TestProxyConfig:

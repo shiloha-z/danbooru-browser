@@ -35,6 +35,15 @@ class FakeHttp:
         except KeyError:
             raise TransportError(f"no canned bytes for {url}") from None
 
+    def iter_bytes(self, url: str, chunk_size: int = 65536):
+        self.bytes_calls.append(url)
+        try:
+            data = self.bytes_responses[url]
+        except KeyError:
+            raise TransportError(f"no canned bytes for {url}") from None
+        for i in range(0, len(data), chunk_size):
+            yield data[i : i + chunk_size]
+
     def set_proxy(self, proxy: str) -> None:
         self.proxy = proxy
 

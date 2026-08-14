@@ -262,10 +262,10 @@ class BrowserPanel {
     }
     this.grid.innerHTML = posts
       .map(
-        (p) => `
+        (p, i) => `
       <div class="thumb" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
         <span class="badge" style="background:${RATING_COLOR[p.rating] || "#666"}">${p.id}</span>
-        <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
+        <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="${i < 12 ? "eager" : "lazy"}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
       </div>`
       )
       .join("");

@@ -7,10 +7,11 @@ test suite never needs it.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 import urllib.parse
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
 from core.errors import TransportError
 
@@ -18,10 +19,24 @@ from core.errors import TransportError
 # 新站点接入时在此追加其图片域名。
 IMAGE_HOST_ALLOWLIST = frozenset({"danbooru.donmai.us", "cdn.donmai.us"})
 
+_IMAGE_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
 
 def is_allowed_image_url(url: str) -> bool:
     parsed = urllib.parse.urlparse(url)
     return parsed.scheme == "https" and parsed.hostname in IMAGE_HOST_ALLOWLIST
+
+
+def image_content_type(url: str) -> str:
+    """按 URL 扩展名返回图片 Content-Type;未知扩展名回退 octet-stream。"""
+    ext = os.path.splitext(urllib.parse.urlparse(url).path)[1].lower()
+    return _IMAGE_CONTENT_TYPES.get(ext, "application/octet-stream")
 
 
 def proxy_config(proxy: str) -> dict[str, str] | None:
@@ -41,6 +56,8 @@ class HttpAdapter(Protocol):
     def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any: ...
 
     def get_bytes(self, url: str) -> bytes: ...
+
+    def iter_bytes(self, url: str, chunk_size: int = 65536) -> Iterator[bytes]: ...
 
     def set_proxy(self, proxy: str) -> None: ...
 
@@ -79,3 +96,11 @@ class RequestsHttpAdapter:
 
     def get_bytes(self, url: str) -> bytes:
         return self._check(self._session.get(url, timeout=self._timeout * 2), url).content
+
+    def iter_bytes(self, url: str, chunk_size: int = 65536) -> Iterator[bytes]:
+        """流式读取:面板图片代理逐块转发用;响应校验在首个 chunk 前触发。"""
+        resp = self._check(self._session.get(url, timeout=self._timeout * 2, stream=True), url)
+        try:
+            yield from resp.iter_content(chunk_size=chunk_size)
+        finally:
+            resp.close()  # 提前中断时也释放连接

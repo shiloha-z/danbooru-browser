@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import asyncio
 
-from aiohttp import web
+from aiohttp import ClientConnectionError, web
 from server import PromptServer
 
 from core.browser import Browser
 from core.errors import StateError, TransportError
 from core.model import Post, SearchConditions
-from sites.http import HttpAdapter, is_allowed_image_url
+from sites.http import HttpAdapter, image_content_type, is_allowed_image_url
 
 
 def display_post(post: Post) -> dict:
@@ -43,15 +43,46 @@ def _local_origin_ok(request: web.Request) -> bool:
 def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> None:
     @server.routes.get("/danbooru_browser/image")
     async def image(request: web.Request) -> web.Response:
-        """面板缩略图代理:浏览器直连 CDN 会被反爬 403(浏览器 UA 即拒),统一走后端。"""
+        """面板图片代理:浏览器直连 CDN 被反爬 403,统一走后端;流式转发,边下边显示。"""
         url = request.query.get("url", "")
         if not is_allowed_image_url(url):
             return web.Response(status=400, text="不允许的图片地址")
+        queue: asyncio.Queue = asyncio.Queue()  # 无界:块在内存中最多一张图大小
+        loop = asyncio.get_running_loop()
+        end = object()
+
+        def producer():
+            try:
+                for chunk in http.iter_bytes(url):
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+            except Exception as e:  # 网络层任何失败(超时/重置/非 200)都转 502
+                loop.call_soon_threadsafe(queue.put_nowait, e)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, end)
+
+        def terminal(chunk):
+            return chunk is end or isinstance(chunk, Exception)
+
+        task = asyncio.to_thread(producer)
+        first = await queue.get()
+        if first is end or isinstance(first, Exception):
+            await task
+            return web.Response(status=502, text="图片读取失败" if first is end else str(first))
+        response = web.StreamResponse(headers={"Content-Type": image_content_type(url)})
+        await response.prepare(request)
         try:
-            data = await asyncio.to_thread(http.get_bytes, url)
-        except TransportError as e:
-            return web.Response(status=502, text=str(e))
-        return web.Response(body=data, content_type="application/octet-stream")
+            await response.write(first)
+            while True:
+                chunk = await queue.get()
+                if terminal(chunk):
+                    break  # 已开始响应,中途失败只能截断(浏览器显示加载失败)
+                await response.write(chunk)
+            await response.write_eof()
+        except (ClientConnectionError, ConnectionResetError):
+            pass  # 客户端断开:截断即可
+        finally:
+            await task  # 等生产者收尾,释放连接
+        return response
 
     @server.routes.get("/danbooru_browser/tags")
     async def tags(request: web.Request) -> web.Response:
