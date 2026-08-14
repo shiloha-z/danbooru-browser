@@ -188,7 +188,11 @@ class BrowserPanel {
             const div = document.createElement("div");
             div.textContent = t;
             div.onmousedown = () => {
-              this.addTagToSearch(t);
+              // 补全语义:替换正在输入的最后一段,而不是追加
+              const words = input.value.trim().split(/\s+/).filter(Boolean);
+              if (words.length) words[words.length - 1] = t;
+              else words.push(t);
+              input.value = words.join(" ");
               hide();
             };
             box.appendChild(div);
