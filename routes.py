@@ -63,7 +63,7 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
         def terminal(chunk):
             return chunk is end or isinstance(chunk, Exception)
 
-        task = asyncio.to_thread(producer)
+        task = asyncio.create_task(asyncio.to_thread(producer))  # to_thread 返回协程,须 create_task 调度
         first = await queue.get()
         if first is end or isinstance(first, Exception):
             await task
