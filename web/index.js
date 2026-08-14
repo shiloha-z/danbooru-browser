@@ -82,11 +82,11 @@ async function apiPage(stateJson, page, proxy) {
   return resp.json();
 }
 
-async function apiAction(stateJson, action, mode, proxy, postId, index) {
+async function apiAction(stateJson, action, mode, proxy, postId, index, outFilter) {
   const resp = await fetch(`${API_BASE}/action`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state_json: stateJson, action, mode, post_id: postId, index, proxy }),
+    body: JSON.stringify({ state_json: stateJson, action, mode, post_id: postId, index, out_filter: outFilter, proxy }),
   });
   return resp.json();
 }
@@ -139,7 +139,7 @@ class BrowserPanel {
         <button disabled title="后续版本">▶ 自动</button>
         <button id="dbb-reset-cursor" disabled>⟲ 重置游标</button>
         <button id="dbb-list-clear" title="清空输出列表">清空列表</button>
-        <input type="text" id="dbb-outfilter" disabled style="flex:1" title="T4 开放" placeholder="输出过滤标签(后续版本)">
+        <input type="text" id="dbb-outfilter" style="flex:1" title="提示词输出时剔除的标签" placeholder="输出过滤(逗号分隔)">
       </div>
       <div class="dbb-row">
         <span style="color:#8a8a94;font-size:11px">评级</span>
@@ -204,6 +204,17 @@ class BrowserPanel {
       this.listAction("insert_to_list", sel, Number.isInteger(pos) && pos >= 1 ? pos - 1 : 0);
     };
     this.listClearBtn.onclick = () => this.listAction("clear_list");
+    this.outFilterInput = el.querySelector("#dbb-outfilter");
+    this.outFilterSeq = 0;
+    let outFilterTimer = null;
+    this.outFilterInput.addEventListener("input", () => {
+      clearTimeout(outFilterTimer);
+      const mySeq = ++this.outFilterSeq;
+      outFilterTimer = setTimeout(() => {
+        const tags = this.outFilterInput.value.trim().split(/[,\s]+/).filter(Boolean);
+        this.listAction("set_out_filter", undefined, undefined, tags, mySeq);
+      }, 300);
+    });
     el.querySelectorAll(".dbb-chip").forEach((c) => {
       c.onclick = () => {
         // 至少保留一个评级:全关 = 不过滤,语义不清
@@ -225,7 +236,7 @@ class BrowserPanel {
     // 重开工作流:会话在 widget 里,控件还原筛选条件并重拉当前页(ADR-0002)
     const state = parseWidget(this.widget?.value);
     if (state?.conditions) {
-      this.syncControls(state.conditions);
+      this.syncControls(state);
       if (state.page && state.page > 1) this.gotoPage(state.page);
       else this.doSearch();
     } else {
@@ -293,9 +304,12 @@ class BrowserPanel {
     };
   }
 
-  syncControls(c) {
+  syncControls(state) {
+    const c = state?.conditions || {};
     this.el.querySelector("#dbb-search").value = (c.tags || []).join(", ");
     this.el.querySelector("#dbb-exclude").value = (c.exclude_tags || []).join(", ");
+    // out_filter 在会话顶层,不在 conditions 里
+    this.el.querySelector("#dbb-outfilter").value = (state?.out_filter || []).join(", ");
     this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
       chip.classList.toggle("on", (c.ratings || ALL_RATINGS).includes(chip.dataset.r));
     });
@@ -357,16 +371,17 @@ class BrowserPanel {
     }
   }
 
-  async listAction(action, postId, index) {
+  async listAction(action, postId, index, outFilter, seq) {
     this.setError("");
     try {
       const res = await apiAction(
-        this.widget?.value || "", action, undefined, this.proxyWidget?.value || "", postId, index,
+        this.widget?.value || "", action, undefined, this.proxyWidget?.value || "", postId, index, outFilter,
       );
       if (res.error) {
         this.setError(res.error);
         return;
       }
+      if (seq !== undefined && seq !== this.outFilterSeq) return;  // 过期响应不覆盖新状态
       this.applyStateOnly(res.state_json);
     } catch (e) {
       this.setError(`列表操作失败: ${e.message || e}`);
@@ -387,6 +402,7 @@ class BrowserPanel {
     this.updateMode(state?.mode);
     this.updateStatus(state);
     this.updateListToggle(state?.selection ?? null);
+    this.renderFooter(state?.selection ?? null);
   }
 
   updateMode(mode) {
@@ -550,9 +566,16 @@ class BrowserPanel {
       return;
     }
     const post = this.findPost(state, selId);
-    text.innerHTML = post
-      ? `已选 <b>#${post.id}</b> · 提示词:${post.tags.join(", ")}`
-      : `已选 <b>#${selId}</b>`;
+    if (post) {
+      // 与后端派生一致:输出过滤剔除的标签在预览中同样剔除
+      const filter = state?.out_filter || [];
+      const filtered = post.tags.filter((t) => !filter.includes(t));
+      text.innerHTML = filtered.length
+        ? `已选 <b>#${post.id}</b> · 提示词:${filtered.join(", ")}`
+        : `已选 <b>#${post.id}</b> · 提示词已全部被过滤`;
+    } else {
+      text.innerHTML = `已选 <b>#${selId}</b>`;
+    }
     this.updateListToggle(selId);
   }
 

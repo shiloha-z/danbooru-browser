@@ -312,6 +312,56 @@ class TestAutoMode:
         assert out.kind is OutputKind.EMPTY  # 拉取上限后停止,不无限循环
 
 
+class TestOutputFilter:
+    """输出过滤:只剔除 Prompt 字符串中的标签,元数据忠实(issue #13)。"""
+
+    def test_filtered_prompt_keeps_order(self):
+        post = make_post(1, tags=("1girl", "nude", "long_hair", "blue_eyes"))
+        browser = build_browser(FakeHttp())
+        assert browser.derive_prompt(post, ("nude",)) == "1girl, long_hair, blue_eyes"
+        assert browser.derive_prompt(post, ("nude", "1girl")) == "long_hair, blue_eyes"
+
+    def test_all_filtered_yields_empty(self):
+        post = make_post(1, tags=("nude", "1girl"))
+        assert build_browser(FakeHttp()).derive_prompt(post, ("nude", "1girl")) == ""
+
+    def test_output_prompt_filtered_metadata_faithful(self):
+        http = FakeHttp()
+        posts = [make_post(1), make_post(2, tags=("2girls", "hug", "nude"))]
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(1, posts)], selection=2, out_filter=("nude",),
+        )
+        http.bytes_responses[posts[1].file_url] = IMAGE_BYTES
+        output, _ = build_browser(http).next_output(session_to_json(state))
+        assert output.prompt == "2girls, hug"  # Prompt 已过滤
+        assert output.metadata["tags"] == ["2girls", "hug", "nude"]  # 元数据忠实
+
+    def test_set_out_filter_does_not_reset_session(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http, selection=2))
+        session.set_out_filter(("nude",))
+        assert session.state.selection == 2  # 过滤不属于搜索条件,不触发重置
+        assert session.state.out_filter == ("nude",)
+
+    def test_out_filter_serializes(self):
+        state = SessionState(out_filter=("nude", "1girl"))
+        assert session_from_json(session_to_json(state)).out_filter == ("nude", "1girl")
+        assert session_from_json('{"conditions": null, "pages": [], "cursor": 0}').out_filter == ()
+
+    def test_out_filter_survives_search_and_paging(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(5).raw)]
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http, selection=2))
+        session.set_out_filter(("nude",))
+        session.search(SearchConditions(site="danbooru"))
+        assert session.state.out_filter == ("nude",)  # 搜索重构不丢过滤
+        session.goto_page(2)
+        assert session.state.out_filter == ("nude",)  # 翻页重构不丢过滤
+
+
 class TestListMode:
     """列表模式:策展列表操作 + 无限循环(issue #9)。"""
 

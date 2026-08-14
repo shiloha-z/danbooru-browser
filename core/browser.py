@@ -77,7 +77,7 @@ class Browser:
                           reason=f"下载失败: {post.file_url} ({e})")
         return Output(
             OutputKind.IMAGE, post=post, image=image,
-            prompt=self.derive_prompt(post), metadata=build_metadata(post),
+            prompt=self.derive_prompt(post, state.out_filter), metadata=build_metadata(post),
         )
 
     def _list_output(self, state: SessionState) -> tuple[Output, SessionState]:
@@ -129,10 +129,10 @@ class Browser:
     def restore(self, state_json: str) -> "Session":
         return Session(session_from_json(state_json), self)
 
-    def derive_prompt(self, post: Post) -> str:
+    def derive_prompt(self, post: Post, out_filter: tuple[str, ...] = ()) -> str:
         caps = self.site(post.site).capabilities
         if caps.prompt_kind == "tags":
-            return ", ".join(post.tags)
+            return ", ".join(t for t in post.tags if t not in out_filter)
         return str(post.raw.get("embedded_prompt", ""))  # civitai:内嵌生成提示词(T2+)
 
     # ---------- 内部 ----------
@@ -188,6 +188,7 @@ class Session:
             outlist=self.state.outlist,
             page=1,
             mode=self.state.mode,
+            out_filter=self.state.out_filter,
         )
         return result
 
@@ -212,6 +213,7 @@ class Session:
             outlist=self.state.outlist,
             page=page,
             mode=self.state.mode,
+            out_filter=self.state.out_filter,
         )
         return result
 
@@ -263,6 +265,10 @@ class Session:
 
     def clear_list(self) -> None:
         self.state.outlist.clear()
+
+    def set_out_filter(self, tags: tuple[str, ...]) -> None:
+        """输出过滤:Prompt 派生剔除的标签(不影响搜索条件与结果)。"""
+        self.state.out_filter = tuple(tags)
 
     def reset_cursor(self) -> None:
         """回到起点:自动模式 = 选中帖;列表模式 = 列表开头;无选中则开头。"""

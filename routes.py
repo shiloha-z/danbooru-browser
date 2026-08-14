@@ -165,6 +165,11 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
                 session.remove_from_list(int(body.get("post_id")))
             elif action == "clear_list":
                 session.clear_list()
+            elif action == "set_out_filter":
+                raw = body.get("out_filter")
+                if not isinstance(raw, list):
+                    return web.json_response({"error": "输出过滤必须是标签数组"}, status=400)
+                session.set_out_filter(tuple(str(t) for t in raw))
             else:
                 return web.json_response({"error": "未知动作"}, status=400)
         except (StateError, KeyError, ValueError, TypeError) as e:
