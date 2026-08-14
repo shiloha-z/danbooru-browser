@@ -192,6 +192,22 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter,
             save_credentials(site_name, {k: str(v).strip() for k, v in fields.items()})
         return web.json_response({"site": site_name, "configured": bool(get_credentials(site_name))})
 
+    @server.routes.post("/danbooru_browser/pt_continue/{node_id}")
+    async def pt_continue(request: web.Request) -> web.Response:
+        """文本(透传)暂停模式:前端编辑确认后唤醒阻塞的执行。"""
+        try:
+            node_id = int(request.match_info["node_id"])
+            body = await request.json()
+            gen = int(body.get("gen", 0))
+        except (ValueError, TypeError):
+            return web.json_response({"error": "参数非法"}, status=400)
+        from core import pt_state
+        key = (node_id, gen)
+        if key in pt_state._status:
+            pt_state._edited[key] = body.get("text", "")
+            pt_state._status[key] = "continue"
+        return web.json_response({"ok": True})
+
     @server.routes.get("/danbooru_browser/capabilities")
     async def capabilities(request: web.Request) -> web.Response:
         """站点能力:面板切换站点时调整控件(评级单选/排除/排序/搜索模式)。"""

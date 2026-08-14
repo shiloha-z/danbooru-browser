@@ -68,9 +68,9 @@ class DanbooruBrowserNode:
 
 
 class DanbooruBrowserTextPassthrough:
-    """文本(透传):原文/标签双模式编辑后输出(移植自 Anima 包,核心版)。
+    """文本(透传):原文/标签双模式编辑 + 中文翻译 + 暂停模式(移植自 Anima 包)。
 
-    裁剪:中文翻译/收藏/云、执行中暂停编辑、PNG 元数据写回。
+    裁剪:收藏/云翻译/标签配色。翻译用本地中文索引(/tags 路由)。
     """
 
     @classmethod
@@ -82,6 +82,7 @@ class DanbooruBrowserTextPassthrough:
                 "text": ("STRING", {"default": "", "multiline": True, "forceInput": True, "lazy": True}),
                 "prompt_text": ("STRING", {"multiline": True, "default": ""}),
             },
+            "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = ("STRING",)
@@ -100,7 +101,19 @@ class DanbooruBrowserTextPassthrough:
         m.update(str(prompt_text).encode())
         if use_input_text and text:
             m.update(str(text).encode())
+        # prompt_text 含前端暂停开关的空格标记:切换暂停触发重执行
         return m.hexdigest()
 
-    def passthrough(self, text="", prompt_text="", use_input_text=True, **kwargs):
-        return (passthrough_text(text, prompt_text, use_input_text),)
+    def passthrough(self, text="", prompt_text="", use_input_text=True, unique_id=None, **kwargs):
+        output = passthrough_text(text, prompt_text, use_input_text)
+        if unique_id is not None:
+            from core import pt_state
+            from server import PromptServer
+
+            def notify(node_id, gen, text):
+                PromptServer.instance.send_sync(
+                    "db-pt-show-continue", {"node_id": node_id, "text": text, "gen": gen},
+                )
+
+            output = pt_state.pause_execute(unique_id, output, notify)
+        return (output,)
