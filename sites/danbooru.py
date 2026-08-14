@@ -91,10 +91,22 @@ class DanbooruSite:
     def fetch_image(self, post: Post, url: str | None = None) -> bytes:
         return self._http.get_bytes(url or post.file_url)
 
-    def autocomplete_tags(self, query: str, limit: int = 10) -> list[str]:
-        """标签补全:面板搜索框输入时的候选列表(站点能力,gelbooru/civitai 后续)。"""
+    def autocomplete_tags(self, query: str, limit: int = 10, category: int | None = None) -> list[str]:
+        """标签补全:面板搜索框输入时的候选列表(站点能力,gelbooru/civitai 后续)。
+
+        category 按响应字段本地过滤(danbooru 的 search[category] 参数实测不过滤):
+        4=角色、1=画师;None = 全量。分类过滤在 API limit 之后,请求量放大再切片,
+        避免常见前缀下过滤后结果过薄。
+        """
+        api_limit = max(limit, 30) if category is not None else limit
         data = self._http.get_json(
             f"{self.BASE_URL}/autocomplete.json",
-            params={"search[query]": query, "search[type]": "tag_query", "limit": limit},
+            params={"search[query]": query, "search[type]": "tag_query", "limit": api_limit},
         )
-        return [d["value"] for d in data if isinstance(d, dict) and d.get("value")]
+        names = [
+            d["value"]
+            for d in data
+            if isinstance(d, dict) and d.get("value")
+            and (category is None or d.get("category") == category)
+        ]
+        return names[:limit]

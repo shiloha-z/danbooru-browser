@@ -128,6 +128,11 @@ class BrowserPanel {
           <option value="civitai">civitai</option>
         </select>
         <button id="dbb-settings" title="API 凭据设置">⚙</button>
+        <select id="dbb-tagtype" title="按 danbooru 分类定向补全" style="width:56px;display:none">
+          <option value="">标签</option>
+          <option value="4">角色</option>
+          <option value="1">画师</option>
+        </select>
         <div class="dbb-searchwrap">
           <input type="text" id="dbb-search" placeholder="标签搜索(逗号分隔)…">
           <div class="dbb-ac" id="dbb-ac"></div>
@@ -307,7 +312,8 @@ class BrowserPanel {
             box.style.display = "block";
             return;
           }
-          const resp = await fetch(`${API_BASE}/tags?q=${encodeURIComponent(q)}`);
+          const type = this.el.querySelector("#dbb-tagtype")?.value || "";
+          const resp = await fetch(`${API_BASE}/tags?q=${encodeURIComponent(q)}${type ? `&category=${type}` : ""}`);
           const data = await resp.json();
           if (mySeq !== seq) return;
           if (data.error || !data.tags?.length) return hide();
@@ -780,6 +786,9 @@ class BrowserPanel {
       this.isModelSearch = data.has_model_search === true;
       const searchInput = this.el.querySelector("#dbb-search");
       searchInput.placeholder = this.isModelSearch ? "模型名搜索…" : "标签搜索(逗号分隔)…";
+      // 类型(角色/画师)定向补全:仅补全能力站点(danbooru)显示
+      const tagtype = this.el.querySelector("#dbb-tagtype");
+      if (tagtype) tagtype.style.display = data.has_tag_autocomplete ? "" : "none";
     } catch { /* 搜索时会再同步 */ }
   }
 

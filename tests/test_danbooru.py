@@ -231,6 +231,19 @@ class TestSearch:
         assert params["search[query]"] == "1girl"
         assert params["search[type]"] == "tag_query"
 
+    def test_autocomplete_filters_by_category(self):
+        # danbooru autocomplete 的 search[category] 实测不过滤,须按响应字段本地过滤
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/autocomplete.json"] = [
+            {"value": "saber_(fate)", "category": 4},
+            {"value": "energy_sword", "category": 0},
+            {"value": "ask_(askzy)", "category": 1},
+        ]
+        site = DanbooruSite(http)
+        assert site.autocomplete_tags("saber", category=4) == ["saber_(fate)"]  # 角色
+        assert site.autocomplete_tags("saber", category=1) == ["ask_(askzy)"]  # 画师
+        assert site.autocomplete_tags("saber") == ["saber_(fate)", "energy_sword", "ask_(askzy)"]  # 全量
+
     def test_fetch_image_transport_error_propagates(self):
         site = DanbooruSite(FakeHttp())
         with pytest.raises(TransportError):
