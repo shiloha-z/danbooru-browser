@@ -73,7 +73,10 @@ class CivitaiSite:
         if len(mapped) == 1:  # 全档位 = 不过滤
             params["nsfw"] = mapped[0]
         data = self._http.get_json(f"{self.BASE_URL}/images", params=params)
-        posts = tuple(parse_post(d) for d in (data.get("items") or []) if isinstance(d, dict))
+        items = [d for d in (data.get("items") or []) if isinstance(d, dict)]
+        if conditions.hide_videos:  # civitai 无标签体系,拉取后过滤视频项
+            items = [d for d in items if not parse_post(d).animated]
+        posts = tuple(parse_post(d) for d in items)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
     def search_models(self, query: str, limit: int = 10) -> list[dict]:

@@ -223,6 +223,7 @@ class BrowserPanel {
     this.listViewBtn = el.querySelector("#dbb-list-view");
     this.listViewBtn.onclick = () => this.toggleListView();
     this.excludeTags = "";  // 排除标签在 ⚙ 设置弹层编辑,面板状态供搜索条件使用
+    this.hideVideos = false;  // 过滤视频帖(设置弹层勾选)
     this.outFilterSeq = 0;
     this.hasExcludeTags = true;  // 能力旗标:applySiteCapabilities 更新
     this.promptIsEmbedded = false;
@@ -342,25 +343,19 @@ class BrowserPanel {
 
   readConditions() {
     const ratings = [...this.el.querySelectorAll(".dbb-chip.on")].map((c) => c.dataset.r);
-    if (this.isModelSearch) {  // civitai:按模型浏览,无标签体系
-      return {
-        site: this.el.querySelector("#dbb-site").value,
-        model_id: this.modelId,
-        ratings,
-        sort: this.el.querySelector("#dbb-sort").value,
-        per_page: +this.el.querySelector("#dbb-perpage").value,
-      };
-    }
-    const tags = this.el.querySelector("#dbb-search").value.trim().split(/[,\s]+/).filter(Boolean);
-    const excludeTags = (this.excludeTags || "").trim().split(/[,\s]+/).filter(Boolean);
-    return {
+    const base = {
       site: this.el.querySelector("#dbb-site").value,
-      tags,
-      exclude_tags: excludeTags,
       ratings,
       sort: this.el.querySelector("#dbb-sort").value,
       per_page: +this.el.querySelector("#dbb-perpage").value,
+      hide_videos: this.hideVideos,
     };
+    if (this.isModelSearch) {  // civitai:按模型浏览,无标签体系
+      return { ...base, model_id: this.modelId };
+    }
+    const tags = this.el.querySelector("#dbb-search").value.trim().split(/[,\s]+/).filter(Boolean);
+    const excludeTags = (this.excludeTags || "").trim().split(/[,\s]+/).filter(Boolean);
+    return { ...base, tags, exclude_tags: excludeTags };
   }
 
   syncControls(state) {
@@ -368,6 +363,7 @@ class BrowserPanel {
     const siteSel = this.el.querySelector("#dbb-site");
     if (c.site && siteSel.value !== c.site) siteSel.value = c.site;  // 还原站点选择
     this.modelId = c.model_id ?? null;  // civitai:还原模型
+    this.hideVideos = !!c.hide_videos;  // 过滤视频帖(设置弹层勾选)
     this.excludeTags = (c.exclude_tags || []).join(", ");
     this.el.querySelector("#dbb-search").value = (c.tags || []).join(", ");
     this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
@@ -812,6 +808,9 @@ class BrowserPanel {
           <span style="color:#8a8a94;font-size:11px;width:52px">输出过滤</span>
           <input id="dbb-set-outfilter" placeholder="逗号分隔,提示词输出时剔除的标签" style="flex:1">
         </div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:11px;color:#d8d8de;cursor:pointer">
+          <input type="checkbox" id="dbb-set-hidevideos"> 过滤视频帖
+        </label>
       </div>
     `;
     const inputs = {
@@ -826,6 +825,9 @@ class BrowserPanel {
     excludeInput.addEventListener("input", () => { this.excludeTags = excludeInput.value; });
     outfilterInput.value = (parseWidget(this.widget?.value)?.out_filter || []).join(", ");
     outfilterInput.disabled = this.promptIsEmbedded;  // 内嵌提示词不适用
+    const hideVideosInput = overlay.querySelector("#dbb-set-hidevideos");
+    hideVideosInput.checked = !!this.hideVideos;
+    hideVideosInput.addEventListener("change", () => { this.hideVideos = hideVideosInput.checked; });
     let ofTimer = null;
     outfilterInput.addEventListener("input", () => {
       clearTimeout(ofTimer);

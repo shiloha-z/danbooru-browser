@@ -77,6 +77,7 @@ class SearchConditions:
     sort: str = "new"  # new | score | random,站点语义映射
     per_page: int = 40
     model_id: int | None = None  # civitai:模型名搜索选中后按模型浏览图片
+    hide_videos: bool = False  # 过滤视频帖(booru 用 -video,civitai 拉取后过滤)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +88,7 @@ class SearchConditions:
             "sort": self.sort,
             "per_page": self.per_page,
             "model_id": self.model_id,
+            "hide_videos": self.hide_videos,
         }
 
     @classmethod
@@ -99,6 +101,7 @@ class SearchConditions:
             sort=d.get("sort", "new"),
             per_page=int(d.get("per_page", 40)),
             model_id=d.get("model_id"),
+            hide_videos=bool(d.get("hide_videos", False)),
         )
 
 

@@ -152,6 +152,15 @@ class TestSearch:
         tags_param = http.json_calls[-1][1]["tags"]
         assert "-nude" in tags_param and "-blood" in tags_param
 
+    def test_hide_videos_maps_to_video_exclude(self):
+        # danbooru 的 video 标签覆盖视频帖(实测),排除即可过滤
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []
+        site = DanbooruSite(http)
+        site.search(SearchConditions(site="danbooru", tags=("1girl",),
+                                     hide_videos=True, per_page=20), 1)
+        assert "-video" in http.json_calls[-1][1]["tags"]
+
     def test_transport_error_propagates(self):
         http = FakeHttp()  # no canned response
         site = DanbooruSite(http)

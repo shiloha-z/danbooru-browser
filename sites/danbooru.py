@@ -60,6 +60,8 @@ class DanbooruSite:
             # 新帖优先必须用 order:id_desc(2026-08 实测)
             tags.append("order:id_desc")
         tags += [f"-{t}" for t in conditions.exclude_tags]
+        if conditions.hide_videos:
+            tags.append("-video")  # danbooru 的 video 标签覆盖视频帖(实测)
         url = f"{self.BASE_URL}/posts.json"
         params = {"page": page, "limit": conditions.per_page, "tags": " ".join(tags)}
         auth = self._auth()

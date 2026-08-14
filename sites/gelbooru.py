@@ -73,6 +73,8 @@ class GelbooruSite:
         elif conditions.sort == "new":
             tags.append("sort:id")  # gelbooru 最新 = 上传 id 降序(实测 sort:change 是修改序)
         tags += [f"-{t}" for t in conditions.exclude_tags]
+        if conditions.hide_videos:
+            tags.append("-video")  # gelbooru 的 video 标签覆盖视频帖(实测)
         params = {
             "page": "dapi", "s": "post", "q": "index", "json": "1",
             "pid": max(page - 1, 0), "limit": conditions.per_page,

@@ -55,6 +55,20 @@ class TestParsePost:
 
 
 class TestSearch:
+    def test_hide_videos_filters_animated(self):
+        # civitai 无标签体系,拉取后过滤视频项
+        http = FakeHttp()
+        http.json_responses["https://civitai.com/api/v1/images"] = {
+            "items": [
+                raw_image(1),
+                raw_image(2, url="https://image.civitai.com/tk/2/original=true/2.mp4"),
+            ],
+        }
+        site = CivitaiSite(http)
+        result = site.search(SearchConditions(site="civitai", model_id=1,
+                                              hide_videos=True, per_page=20), 1)
+        assert [p.id for p in result.posts] == [1]  # mp4 被过滤
+
     def test_search_by_model_id(self):
         http = FakeHttp()
         http.json_responses["https://civitai.com/api/v1/images"] = {"items": [raw_image(1)]}

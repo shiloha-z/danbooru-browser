@@ -106,6 +106,13 @@ class TestSearch:
                                      exclude_tags=("nude",), per_page=20), 1)
         assert "-nude" in http.json_calls[-1][1]["tags"]
 
+    def test_hide_videos_maps_to_video_exclude(self):
+        http = FakeHttp()
+        http.json_responses["https://gelbooru.com/index.php"] = {"post": []}
+        site = GelbooruSite(http, credentials=CREDS)
+        site.search(SearchConditions(site="gelbooru", hide_videos=True, per_page=20), 1)
+        assert "-video" in http.json_calls[-1][1]["tags"]
+
     def test_missing_credentials_raise_clear_error(self):
         http = FakeHttp()
         site = GelbooruSite(http, credentials={})  # 未配置凭据
