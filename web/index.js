@@ -47,6 +47,7 @@ const PANEL_CSS = `
 .dbb-grid .thumb.sel{border-color:#4f8cff;box-shadow:0 0 0 2px rgba(79,140,255,.35)}
 .dbb-grid .thumb.failed{border-color:#ff5f56;box-shadow:0 0 0 2px rgba(255,95,86,.3)}
 .dbb-grid .thumb.failed img{opacity:.35}
+.dbb-grid .thumb.placeholder{display:flex;align-items:center;justify-content:center;color:#8a8a94;font-size:12px;cursor:pointer}
 .dbb-grid .thumb .badge{position:absolute;top:3px;left:3px;font-size:9px;border-radius:3px;padding:0 4px;color:#fff}
 .dbb-empty{color:#8a8a94;text-align:center;padding:34px 10px;grid-column:1/-1}
 .dbb-empty .big{font-size:26px;margin-bottom:6px}
@@ -141,6 +142,7 @@ class BrowserPanel {
         <button disabled title="后续版本">▶ 自动</button>
         <button id="dbb-reset-cursor" disabled>⟲ 重置游标</button>
         <button id="dbb-list-clear" title="清空输出列表">清空列表</button>
+        <button id="dbb-list-view" title="查看输出列表内的图片">查看列表</button>
       </div>
       <div class="dbb-row">
         <span style="color:#8a8a94;font-size:11px">评级</span>
@@ -215,6 +217,9 @@ class BrowserPanel {
       this.listAction("insert_to_list", sel, Number.isInteger(pos) && pos >= 1 ? pos - 1 : 0);
     };
     this.listClearBtn.onclick = () => this.listAction("clear_list");
+    this.listView = false;  // 列表视图(临时):网格只显示输出列表内帖子
+    this.listViewBtn = el.querySelector("#dbb-list-view");
+    this.listViewBtn.onclick = () => this.toggleListView();
     this.excludeTags = "";  // 排除标签在 ⚙ 设置弹层编辑,面板状态供搜索条件使用
     this.outFilterSeq = 0;
     this.hasExcludeTags = true;  // 能力旗标:applySiteCapabilities 更新
@@ -451,6 +456,63 @@ class BrowserPanel {
     }
   }
 
+  toggleListView() {
+    this.listView = !this.listView;
+    this.listViewBtn.textContent = this.listView ? "退出列表" : "查看列表";
+    const state = parseWidget(this.widget?.value);
+    if (this.listView) {
+      this.renderListView(state);
+    } else {
+      // 退出视图:恢复当前页搜索结果网格(不重拉,页码/选中保持)
+      const curPage = this.currentPage(state);
+      if (!curPage?.posts?.length) this.renderEmpty("没有符合条件的帖子");
+      else {
+        this.renderGrid(curPage.posts, new Set(state?.failed || []));
+        this.applySelectionHighlight(state);
+      }
+    }
+  }
+
+  currentPage(state) {
+    return (state?.pages || []).find((pg) => pg.number === (this.page || 1));
+  }
+
+  applySelectionHighlight(state) {
+    const sel = state?.selection;
+    if (sel == null) return;
+    this.grid.querySelectorAll(".thumb").forEach((t) => {
+      t.classList.toggle("sel", +t.dataset.id === sel);
+    });
+  }
+
+  renderListView(state) {
+    if (!state?.conditions) {
+      this.renderEmpty("未浏览 — 先搜索再查看列表");
+      return;
+    }
+    const posts = this.buildListViewPosts(state);
+    if (!posts.length) {
+      this.renderEmpty("列表为空 — 在面板中把帖子加入列表");
+      return;
+    }
+    this.renderGrid(posts, new Set(state.failed || []));
+    this.applySelectionHighlight(state);
+  }
+
+  buildListViewPosts(state) {
+    const posts = [];
+    for (const id of state?.outlist || []) {
+      const post = this.findPost(state, id);
+      posts.push(post
+        ? {
+            id: post.id, preview_url: post.preview_url || post.file_url,
+            rating: post.rating, score: post.score, animated: post.animated, loaded: true,
+          }
+        : { id, preview_url: "", rating: "", score: 0, animated: false, loaded: false });
+    }
+    return posts;
+  }
+
   toggleListForSelection() {
     const state = parseWidget(this.widget?.value);
     const sel = state?.selection;
@@ -466,6 +528,7 @@ class BrowserPanel {
     this.updateStatus(state);
     this.updateListToggle(state?.selection ?? null);
     this.renderFooter(state?.selection ?? null);
+    if (this.listView) this.renderListView(state);  // 列表操作后视图即时更新
   }
 
   updateMode(mode) {
@@ -484,8 +547,13 @@ class BrowserPanel {
     this.multiRating = res.capabilities?.multi_rating !== false;  // 站点能力:评级多选/单选
     this.pageInput.value = res.page;
     this.updateNavButtons();
+    if (this.listView) {  // 新搜索/翻页退出列表视图,展示新结果
+      this.listView = false;
+      this.listViewBtn.textContent = "查看列表";
+    }
     const state = parseWidget(res.state_json);
     this.renderGrid(res.posts, new Set(state?.failed || []));
+    this.applySelectionHighlight(state);
     if (this.isModelSearch && this.modelId) {
       // civitai:搜索框显示模型名(重开工作流时从首帖 raw 还原)
       const first = (state.pages || []).flatMap((pg) => pg.posts)[0];
@@ -495,13 +563,6 @@ class BrowserPanel {
     this.updateMode(state?.mode);
     this.updateStatus(state);
     this.renderFooter(state?.selection ?? null);
-    // 后端保留的选中项要重新画上蓝色描边(ADR-0002)
-    const sel = state?.selection;
-    if (sel != null) {
-      this.grid.querySelectorAll(".thumb").forEach((t) => {
-        t.classList.toggle("sel", +t.dataset.id === sel);
-      });
-    }
   }
 
   updateNavButtons() {
@@ -516,11 +577,13 @@ class BrowserPanel {
     }
     this.grid.innerHTML = posts
       .map(
-        (p, i) => `
+        (p, i) => p.loaded === false
+          ? `<div class="thumb placeholder" data-id="${p.id}" title="#${p.id} · 不在已加载结果中,可选中后从列表移除">#${p.id}</div>`
+          : `
       <div class="thumb${failedSet?.has(p.id) ? " failed" : ""}" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
         <span class="badge" style="background:${RATING_COLOR[p.rating] || "#666"}">${p.id}</span>
         <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="${i < 12 ? "eager" : "lazy"}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
-      </div>`
+      </div>`,
       )
       .join("");
     this.grid.querySelectorAll(".thumb").forEach((t) => {
@@ -811,7 +874,7 @@ class BrowserPanel {
     const modeLabel = { manual: "普通", auto: "自动", list: "列表" }[state?.mode] || "普通";
     const sel = state?.selection != null ? `#${state.selection}` : "—";
     // 手动:游标是当前页内的位置;自动:游标跨全部已加载;列表:游标对列表长度
-    const curPage = (state?.pages || []).find((pg) => pg.number === (state?.page || 1));
+    const curPage = this.currentPage(state);
     const total = (state?.pages || []).reduce((n, pg) => n + pg.posts.length, 0);
     const nPosts = state?.mode === "auto" ? total : (curPage ? curPage.posts.length : 0);
     const maxN = state?.mode === "list" ? (state.outlist || []).length : nPosts;
