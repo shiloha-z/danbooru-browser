@@ -122,7 +122,7 @@ class BrowserPanel {
       </div>
       <div class="dbb-row">
         <span style="color:#8a8a94;font-size:11px">评级</span>
-        ${ALL_RATINGS.map((r) => `<button class="dbb-chip on" data-r="${r}" style="color:${RATING_COLOR[r]}">${RATING_LABEL[r]}</button>`).join("")}
+        ${ALL_RATINGS.map((r) => `<button class="dbb-chip${r === "g" ? " on" : ""}" data-r="${r}" style="color:${RATING_COLOR[r]}">${RATING_LABEL[r]}</button>`).join("")}
         <select id="dbb-sort" style="margin-left:auto">
           <option value="new">最新</option>
           <option value="score">评分</option>
@@ -227,7 +227,7 @@ class BrowserPanel {
   syncControls(c) {
     this.el.querySelector("#dbb-search").value = (c.tags || []).join(" ");
     this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
-      chip.classList.toggle("on", (c.ratings || ALL_RATINGS).includes(chip.dataset.r));
+      chip.classList.toggle("on", (c.ratings || ["g"]).includes(chip.dataset.r));
     });
     this.el.querySelector("#dbb-sort").value = c.sort || "new";
     this.el.querySelector("#dbb-perpage").value = String(c.per_page || 40);
