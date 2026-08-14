@@ -188,6 +188,7 @@ class BrowserPanel {
     this.capSeq = 0;
     this.modelId = null;
     this.isModelSearch = false;
+    this.prefetched = new Set();  // 已预取的下一页页码(每页仅预取一次)
     this.pageInput = el.querySelector("#dbb-page");
     this.prevBtn = el.querySelector("#dbb-prev");
     this.nextBtn = el.querySelector("#dbb-next");
@@ -378,6 +379,7 @@ class BrowserPanel {
 
   async doSearch() {
     this.setError("");
+    this.prefetched.clear();  // 新搜索 = 新的结果身份,旧的预取记录作废
     try {
       // 模型模式:未从下拉选择时,自动选中第一个模型结果
       if (this.isModelSearch && !this.modelId) {
@@ -482,6 +484,32 @@ class BrowserPanel {
     return state?.mode !== "manual" ? state.last_output : null;  // 手动模式无红标
   }
 
+  thumbUrl(url) {
+    return `${API_BASE}/image?url=${encodeURIComponent(url)}`;
+  }
+
+  prefetchNextPage() {
+    if (!this.hasNext) return;  // 最后一页不预取
+    const sort = parseWidget(this.widget?.value)?.conditions?.sort;
+    if (sort === "random") return;  // 随机重抽样,预取无效
+    const target = this.page + 1;
+    if (this.prefetched.has(target)) return;  // 每页仅预取一次
+    this.prefetched.add(target);
+    clearTimeout(this._prefetchTimer);
+    this._prefetchTimer = setTimeout(async () => {
+      try {
+        const res = await apiPage(this.widget?.value || "", target, this.proxyWidget?.value || "");
+        if (res.error || !res.posts?.length) return;
+        // 预热缩略图:浏览器缓存 + 代理磁盘缓存同时生效(#20),翻页图片秒出
+        res.posts.slice(0, 15).forEach((p) => {
+          if (!p.preview_url) return;
+          const img = new Image();
+          img.src = this.thumbUrl(p.preview_url);
+        });
+      } catch { /* 静默:预取失败不影响浏览 */ }
+    }, 500);
+  }
+
   applySelectionHighlight(state) {
     const sel = state?.selection;
     if (sel == null) return;
@@ -568,6 +596,7 @@ class BrowserPanel {
     this.updateMode(state?.mode);
     this.updateStatus(state);
     this.renderFooter(state?.selection ?? null);
+    this.prefetchNextPage();  // 后台预热下一页缩略图
   }
 
   updateNavButtons() {
@@ -588,7 +617,7 @@ class BrowserPanel {
       <div class="thumb${failedSet?.has(p.id) ? " failed" : ""}${currentId != null && p.id === currentId ? " current" : ""}" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
         ${failedSet?.has(p.id) ? '<span class="fail-badge">✕</span>' : ""}
         <span class="badge" style="background:${RATING_COLOR[p.rating] || "#666"}">${p.id}</span>
-        <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="${i < 12 ? "eager" : "lazy"}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
+        <img src="${this.thumbUrl(p.preview_url)}" alt="#${p.id}" loading="${i < 12 ? "eager" : "lazy"}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
       </div>`,
       )
       .join("");
@@ -653,7 +682,7 @@ class BrowserPanel {
       if (!url) return fail("没有可显示的图片");
       msg.style.display = "none";
       img.style.display = "block";
-      img.src = `${API_BASE}/image?url=${encodeURIComponent(url)}`;
+      img.src = this.thumbUrl(url);
       toggle.textContent = label;
     };
     img.onerror = () => fail("图片加载失败(可能已删除或网络异常)");
