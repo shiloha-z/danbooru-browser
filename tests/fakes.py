@@ -35,6 +35,9 @@ class FakeHttp:
         except KeyError:
             raise TransportError(f"no canned bytes for {url}") from None
 
+    def set_proxy(self, proxy: str) -> None:
+        self.proxy = proxy
+
 
 class MemoryCache:
     """In-memory ImageCache for cache tests."""

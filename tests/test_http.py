@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sites.http import is_allowed_image_url
+from sites.http import is_allowed_image_url, proxy_config
 
 
 class TestIsAllowedImageUrl:
@@ -25,3 +25,27 @@ class TestIsAllowedImageUrl:
     def test_rejects_malformed(self):
         assert not is_allowed_image_url("")
         assert not is_allowed_image_url("cdn.donmai.us/relative.jpg")
+
+
+class TestProxyConfig:
+    def test_empty_means_system_proxy(self):
+        assert proxy_config("") is None
+        assert proxy_config("   ") is None
+
+    def test_host_port_gets_http_scheme(self):
+        assert proxy_config("127.0.0.1:7897") == {
+            "http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897",
+        }
+
+    def test_full_url_kept(self):
+        assert proxy_config("http://proxy.example:8080") == {
+            "http": "http://proxy.example:8080", "https": "http://proxy.example:8080",
+        }
+
+    def test_invalid_raises(self):
+        with pytest.raises(ValueError):
+            proxy_config("http://")  # 无 host
+        with pytest.raises(ValueError):
+            proxy_config("ftp://host:21")  # 非 http/https
+        with pytest.raises(ValueError):
+            proxy_config("socks5://host:1080")  # 仅支持 http/https

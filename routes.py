@@ -31,6 +31,15 @@ def display_post(post: Post) -> dict:
     }
 
 
+def _local_origin_ok(request: web.Request) -> bool:
+    """浏览器请求校验 Origin:防任意网页把本机 ComfyUI 当代理跳板(代理来自请求体)。"""
+    origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
+    if not origin:  # 非浏览器客户端(无 Origin/Referer)
+        return True
+    host = request.host
+    return origin.startswith(f"http://{host}") or origin.startswith(f"https://{host}")
+
+
 def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> None:
     @server.routes.get("/danbooru_browser/image")
     async def image(request: web.Request) -> web.Response:
@@ -61,10 +70,16 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
 
     @server.routes.post("/danbooru_browser/search")
     async def search(request: web.Request) -> web.Response:
+        if not _local_origin_ok(request):
+            return web.json_response({"error": "非法的请求来源"}, status=403)
         try:
             body = await request.json()
         except Exception:
             return web.json_response({"error": "请求体必须是 JSON"}, status=400)
+        try:
+            http.set_proxy(body.get("proxy") or "")  # 代理来自节点 widget,全局生效
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
         try:
             session = browser.restore(body.get("state_json", ""))
             conditions = SearchConditions.from_dict(body.get("conditions") or {})

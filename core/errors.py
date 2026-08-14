@@ -12,4 +12,11 @@ class StateError(BrowserError):
 
 
 class TransportError(BrowserError):
-    """Network or HTTP-level failure talking to a site API / file host."""
+    """Network or HTTP-level failure talking to a site API / file host.
+
+    status 为 HTTP 状态码;网络层失败(超时/连接错误)为 None。
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status

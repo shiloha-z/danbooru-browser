@@ -20,6 +20,24 @@ def raw_post(post_id: int = 42, **overrides) -> dict:
     return raw
 
 
+class FlakyHttp(FakeHttp):
+    """首次请求指定 URL 抛 TransportError(模拟 danbooru 500),后续请求正常。"""
+
+    def __init__(self, fail_once_urls=()) -> None:
+        super().__init__()
+        self._fail_urls = set(fail_once_urls)
+
+    def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
+        self.json_calls.append((url, params))
+        if url in self._fail_urls:
+            self._fail_urls.remove(url)
+            raise TransportError(f"HTTP 500: {url}", status=500)
+        try:
+            return self.json_responses[url]
+        except KeyError:
+            raise TransportError(f"no canned response for {url}") from None
+
+
 class TestParsePost:
     def test_maps_fields(self):
         p = parse_post(
@@ -137,6 +155,24 @@ class TestSearch:
         site = DanbooruSite(http)
         with pytest.raises(TransportError):
             site.search(SearchConditions(site="danbooru"), 1)
+
+    def test_score_sort_falls_back_to_rank_on_500(self):
+        # danbooru 对含普通标签的 order:score 稳定 500(2026-08 实测),降级 order:rank
+        http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"])
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [raw_post(1)]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", tags=("1girl",), sort="score", per_page=20), 1)
+        assert [p.id for p in result.posts] == [1]
+        assert http.json_calls[0][1]["tags"] == "1girl order:score"
+        assert http.json_calls[1][1]["tags"] == "1girl order:rank"
+
+    def test_non_score_500_does_not_fall_back(self):
+        http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"])
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [raw_post(1)]
+        site = DanbooruSite(http)
+        with pytest.raises(TransportError):
+            site.search(SearchConditions(site="danbooru", tags=("1girl",), sort="new", per_page=20), 1)
+        assert len(http.json_calls) == 1  # 非 score 排序不重试
 
     def test_fetch_image(self):
         http = FakeHttp()

@@ -64,11 +64,11 @@ function injectCss() {
   document.head.appendChild(style);
 }
 
-async function apiSearch(stateJson, conditions) {
+async function apiSearch(stateJson, conditions, proxy) {
   const resp = await fetch(`${API_BASE}/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state_json: stateJson, conditions }),
+    body: JSON.stringify({ state_json: stateJson, conditions, proxy }),
   });
   return resp.json();
 }
@@ -87,6 +87,7 @@ class BrowserPanel {
   constructor(node) {
     this.node = node;
     this.widget = node.widgets?.find((w) => w.name === "session");
+    this.proxyWidget = node.widgets?.find((w) => w.name === "proxy");
     injectCss();
     this.buildDom();
     this.init();
@@ -232,7 +233,7 @@ class BrowserPanel {
     this.setError("");
     try {
       const conditions = this.readConditions();
-      const res = await apiSearch(this.widget?.value || "", conditions);
+      const res = await apiSearch(this.widget?.value || "", conditions, this.proxyWidget?.value || "");
       if (res.error) {
         this.setError(res.error);
         return;

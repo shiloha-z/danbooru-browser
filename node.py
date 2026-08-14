@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from wiring import get_browser
+from wiring import get_browser, get_http
 from core.model import OutputKind
 
 
@@ -32,6 +32,8 @@ class DanbooruBrowserNode:
                 # 浏览会话 JSON(搜索条件、已加载页、游标、选中项);面板维护,随工作流序列化。
                 # 单行 widget:会话 JSON 很长,多行会让节点撑成巨型文本框。
                 "session": ("STRING", {"default": ""}),
+                # HTTP 代理地址(host:port 或完整 URL);空 = 系统代理。全局生效:搜索/图片/补全。
+                "proxy": ("STRING", {"default": "127.0.0.1:7897"}),
             }
         }
 
@@ -40,7 +42,8 @@ class DanbooruBrowserNode:
     FUNCTION = "run"
     CATEGORY = "danbooru_browser"
 
-    def run(self, session: str = ""):
+    def run(self, session: str = "", proxy: str = ""):
+        get_http().set_proxy(proxy)  # 代理是全局 adapter 设置,执行时同步(与面板搜索一致)
         output, _ = get_browser().next_output(session or "")
         if output.kind is OutputKind.IMAGE:
             return (

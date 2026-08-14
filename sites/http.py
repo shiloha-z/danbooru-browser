@@ -24,10 +24,25 @@ def is_allowed_image_url(url: str) -> bool:
     return parsed.scheme == "https" and parsed.hostname in IMAGE_HOST_ALLOWLIST
 
 
+def proxy_config(proxy: str) -> dict[str, str] | None:
+    """代理字符串 → requests proxies 配置;空 = None(系统代理)。非法值抛 ValueError。"""
+    proxy = proxy.strip() if proxy else ""
+    if not proxy:
+        return None
+    if "://" not in proxy:
+        proxy = f"http://{proxy}"
+    parsed = urllib.parse.urlparse(proxy)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"非法代理地址: {proxy!r}")
+    return {"http": proxy, "https": proxy}
+
+
 class HttpAdapter(Protocol):
     def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any: ...
 
     def get_bytes(self, url: str) -> bytes: ...
+
+    def set_proxy(self, proxy: str) -> None: ...
 
 
 class RequestsHttpAdapter:
@@ -51,8 +66,12 @@ class RequestsHttpAdapter:
 
     def _check(self, resp: Any, url: str):
         if resp.status_code != 200:
-            raise TransportError(f"HTTP {resp.status_code}: {url}")
+            raise TransportError(f"HTTP {resp.status_code}: {url}", status=resp.status_code)
         return resp
+
+    def set_proxy(self, proxy: str) -> None:
+        """设置全局代理(搜索/图片/补全共用);空值恢复系统代理(env/trust_env)。"""
+        self._session.proxies = proxy_config(proxy) or {}
 
     def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
         self._throttle()  # API 调用限流;图片走 CDN,不限

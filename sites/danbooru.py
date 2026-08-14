@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
+from core.errors import TransportError
 from core.model import Post, SearchConditions, SearchResult
 from core.site import Site, SiteCapabilities
 
@@ -55,10 +56,17 @@ class DanbooruSite:
             # 新帖优先必须用 order:id_desc(2026-08 实测)
             tags.append("order:id_desc")
         tags += [f"-{t}" for t in conditions.exclude_tags]
-        data = self._http.get_json(
-            f"{self.BASE_URL}/posts.json",
-            params={"page": page, "limit": conditions.per_page, "tags": " ".join(tags)},
-        )
+        url = f"{self.BASE_URL}/posts.json"
+        params = {"page": page, "limit": conditions.per_page, "tags": " ".join(tags)}
+        try:
+            data = self._http.get_json(url, params=params)
+        except TransportError as e:
+            if conditions.sort != "score" or "order:score" not in tags or e.status != 500:
+                raise
+            # danbooru 对含普通标签的 order:score 查询稳定 500(2026-08 实测);
+            # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
+            params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
+            data = self._http.get_json(url, params=params)
         posts = tuple(parse_post(d, "danbooru") for d in data)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
