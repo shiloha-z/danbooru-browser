@@ -11,7 +11,7 @@ import pytest
 from core.browser import Browser
 from core.errors import StateError
 from core.model import OutputKind, SearchConditions
-from core.session import Page, SessionState, session_to_json
+from core.session import Page, SessionState, session_from_json, session_to_json
 from sites.danbooru import DanbooruSite
 
 from fakes import FakeHttp, IMAGE_BYTES, MemoryCache, make_post
@@ -168,3 +168,59 @@ class TestSessionHandle:
         assert session.serialize()
         with pytest.raises(StateError):
             browser.restore(state_with_selection(http)).select(999)
+
+
+class TestPagination:
+    def test_goto_page_fetches_page_and_accumulates(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(5).raw), dict(make_post(6).raw),
+        ]
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http, selection=2))
+        result = session.goto_page(2)
+        assert [p.id for p in result.posts] == [5, 6]
+        state = browser.restore(session.serialize()).state
+        assert state.page == 2  # 当前页序列化
+        assert {pg.number for pg in state.pages} == {1, 2}  # 多页累积
+        assert state.selection is None  # 原选中 2 不在新页中 → 清空
+
+    def test_goto_page_keeps_selection_when_in_new_page(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(2).raw)]
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http, selection=2))
+        session.goto_page(2)
+        assert session.state.selection == 2  # 新页含原选中 → 保留(ADR-0002)
+
+    def test_goto_page_replaces_same_page(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(9).raw)]
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http))
+        session.goto_page(1)
+        assert {pg.number for pg in session.state.pages} == {1}  # 覆盖而非重复
+
+    def test_goto_page_requires_browsed_session(self):
+        with pytest.raises(StateError):
+            build_browser(FakeHttp()).restore("").goto_page(2)
+
+    def test_page_defaults_to_one_and_roundtrips(self):
+        assert session_from_json('{"conditions": null, "pages": [], "cursor": 0}').page == 1
+        state = SessionState(page=3)
+        assert session_from_json(session_to_json(state)).page == 3
+
+    def test_goto_page_rejects_invalid_page(self):
+        browser = build_browser(FakeHttp())
+        for bad in (0, -3):
+            with pytest.raises(StateError):
+                browser.restore(state_with_selection(FakeHttp())).goto_page(bad)
+
+    def test_goto_page_empty_results_not_accumulated(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []  # 越界空页
+        browser = build_browser(http)
+        session = browser.restore(state_with_selection(http, selection=2))
+        session.goto_page(50)
+        assert session.state.page == 50  # 页码仍记录,重开工作流会重拉
+        assert {pg.number for pg in session.state.pages} == {1}  # 空页不入列

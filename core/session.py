@@ -35,6 +35,7 @@ class SessionState:
     cursor: int = 0
     selection: int | None = None
     outlist: list[int] = field(default_factory=list)  # 列表模式(T4+);T1 恒空
+    page: int = 1  # 当前页(面板翻页位置,随工作流序列化)
 
     def loaded_posts(self) -> list[Post]:
         return [p for page in self.pages for p in page.posts]
@@ -52,6 +53,7 @@ class SessionState:
             "cursor": self.cursor,
             "selection": self.selection,
             "outlist": self.outlist,
+            "page": self.page,
         }
 
     @classmethod
@@ -62,6 +64,7 @@ class SessionState:
             cursor=int(d.get("cursor", 0)),
             selection=d.get("selection"),
             outlist=list(d.get("outlist", [])),
+            page=int(d.get("page", 1)),
         )
 
 

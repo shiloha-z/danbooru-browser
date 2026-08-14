@@ -99,6 +99,41 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
             return web.json_response({"error": str(e)}, status=502)
         return web.json_response({"tags": names})
 
+    @server.routes.post("/danbooru_browser/page")
+    async def page(request: web.Request) -> web.Response:
+        """翻页导航:恢复会话 → goto_page → 序列化(ADR-0003)。"""
+        if not _local_origin_ok(request):
+            return web.json_response({"error": "非法的请求来源"}, status=403)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "请求体必须是 JSON"}, status=400)
+        try:
+            http.set_proxy(body.get("proxy") or "")
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        try:
+            page_no = int(body.get("page"))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "页码必须是数字"}, status=400)
+        if page_no < 1:
+            return web.json_response({"error": "页码必须 ≥ 1"}, status=400)
+        try:
+            session = browser.restore(body.get("state_json", ""))
+            result = await asyncio.to_thread(session.goto_page, page_no)
+        except (StateError, KeyError, ValueError, TypeError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except TransportError as e:
+            return web.json_response({"error": str(e)}, status=502)
+        return web.json_response(
+            {
+                "state_json": session.serialize(),
+                "posts": [display_post(p) for p in result.posts],
+                "page": result.page,
+                "has_next": result.has_next,
+            }
+        )
+
     @server.routes.post("/danbooru_browser/search")
     async def search(request: web.Request) -> web.Response:
         if not _local_origin_ok(request):

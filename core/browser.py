@@ -132,6 +132,30 @@ class Session:
             cursor=0,
             selection=prev.selection,
             outlist=self.state.outlist,
+            page=1,
+        )
+        return result
+
+    def goto_page(self, page: int) -> SearchResult:
+        """按页导航:拉取该页并入 pages;选中项不在新页中则清空(ADR-0002)。"""
+        if page < 1:
+            raise StateError("页码必须 ≥ 1")
+        if self.state.conditions is None:
+            raise StateError("未浏览:先在面板中搜索")
+        site = self._browser.site(self.state.conditions.site)
+        result = site.search(self.state.conditions, page=page)
+        kept = self.state.selection if any(p.id == self.state.selection for p in result.posts) else None
+        pages = [pg for pg in self.state.pages if pg.number != page]
+        if result.posts:  # 空页(跳转越界)不累积,避免会话膨胀;页码仍记录
+            pages.append(Page(number=page, posts=list(result.posts)))
+            pages.sort(key=lambda pg: pg.number)
+        self.state = SessionState(
+            conditions=self.state.conditions,
+            pages=pages,
+            cursor=0,  # 翻页后游标归零:游标是当前页内的位置
+            selection=kept,
+            outlist=self.state.outlist,
+            page=page,
         )
         return result
 

@@ -73,6 +73,15 @@ async function apiSearch(stateJson, conditions, proxy) {
   return resp.json();
 }
 
+async function apiPage(stateJson, page, proxy) {
+  const resp = await fetch(`${API_BASE}/page`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state_json: stateJson, page, proxy }),
+  });
+  return resp.json();
+}
+
 function parseWidget(json) {
   if (!json) return null;
   try {
@@ -136,10 +145,27 @@ class BrowserPanel {
         </select>
       </div>
       <div class="dbb-status"><span id="dbb-status-text">普通 · 游标 — · 已选 — · 列表 0 · 失败 0</span><span id="dbb-err" class="err" style="margin-left:auto"></span></div>
+      <div class="dbb-row">
+        <button id="dbb-prev" disabled>‹ 上一页</button>
+        <input type="text" id="dbb-page" value="1" style="width:44px;text-align:center" title="当前页,回车跳转">
+        <button id="dbb-jump">跳转</button>
+        <button id="dbb-next" disabled>下一页 ›</button>
+      </div>
       <div class="dbb-grid" id="dbb-grid"></div>
       <div class="dbb-footer" id="dbb-footer">未选中 — 点击缩略图选中;执行队列输出所选帖子</div>
     `;
     el.querySelector("#dbb-search-btn").onclick = () => this.doSearch();
+    this.page = 1;
+    this.hasNext = false;
+    this.pageInput = el.querySelector("#dbb-page");
+    this.prevBtn = el.querySelector("#dbb-prev");
+    this.nextBtn = el.querySelector("#dbb-next");
+    this.prevBtn.onclick = () => this.gotoPage(this.page - 1);
+    this.nextBtn.onclick = () => this.gotoPage(this.page + 1);
+    el.querySelector("#dbb-jump").onclick = () => this.jumpToPage();
+    this.pageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.jumpToPage();
+    });
     el.querySelectorAll(".dbb-chip").forEach((c) => {
       c.onclick = () => {
         // 至少保留一个评级:全关 = 不过滤,语义不清
@@ -156,11 +182,12 @@ class BrowserPanel {
   }
 
   init() {
-    // 重开工作流:会话在 widget 里,控件还原筛选条件并重拉第 1 页(ADR-0002)
+    // 重开工作流:会话在 widget 里,控件还原筛选条件并重拉当前页(ADR-0002)
     const state = parseWidget(this.widget?.value);
     if (state?.conditions) {
       this.syncControls(state.conditions);
-      this.doSearch();
+      if (state.page && state.page > 1) this.gotoPage(state.page);
+      else this.doSearch();
     } else {
       this.renderEmpty("未浏览 — 点击「搜索」加载 danbooru 最新帖子");
     }
@@ -242,21 +269,55 @@ class BrowserPanel {
         this.setError(res.error);
         return;
       }
-      this.widget.value = res.state_json;
-      this.renderGrid(res.posts);
-      const state = parseWidget(res.state_json);
-      this.updateStatus(state);
-      this.renderFooter(state?.selection ?? null);
-      // 重开工作流:后端保留的选中项要重新画上蓝色描边(ADR-0002)
-      const sel = state?.selection;
-      if (sel != null) {
-        this.grid.querySelectorAll(".thumb").forEach((t) => {
-          t.classList.toggle("sel", +t.dataset.id === sel);
-        });
-      }
+      this.applyResult(res);
     } catch (e) {
       this.setError(`搜索失败: ${e.message || e}`);
     }
+  }
+
+  async gotoPage(n) {
+    this.setError("");
+    try {
+      const res = await apiPage(this.widget?.value || "", n, this.proxyWidget?.value || "");
+      if (res.error) {
+        this.setError(res.error);
+        return;
+      }
+      this.applyResult(res);
+    } catch (e) {
+      this.setError(`翻页失败: ${e.message || e}`);
+    }
+  }
+
+  jumpToPage() {
+    const n = Number(this.pageInput.value.trim());
+    if (!Number.isInteger(n) || n < 1) return this.setError("页码必须是 ≥1 的整数");
+    if (n === this.page) return;
+    this.gotoPage(n);
+  }
+
+  applyResult(res) {
+    this.widget.value = res.state_json;
+    this.page = res.page;
+    this.hasNext = !!res.has_next;
+    this.pageInput.value = res.page;
+    this.updateNavButtons();
+    this.renderGrid(res.posts);
+    const state = parseWidget(res.state_json);
+    this.updateStatus(state);
+    this.renderFooter(state?.selection ?? null);
+    // 后端保留的选中项要重新画上蓝色描边(ADR-0002)
+    const sel = state?.selection;
+    if (sel != null) {
+      this.grid.querySelectorAll(".thumb").forEach((t) => {
+        t.classList.toggle("sel", +t.dataset.id === sel);
+      });
+    }
+  }
+
+  updateNavButtons() {
+    this.prevBtn.disabled = !this.page || this.page <= 1;
+    this.nextBtn.disabled = !this.hasNext;
   }
 
   renderGrid(posts) {
@@ -387,7 +448,9 @@ class BrowserPanel {
 
   updateStatus(state) {
     const sel = state?.selection != null ? `#${state.selection}` : "—";
-    const nPosts = (state?.pages || []).reduce((n, pg) => n + pg.posts.length, 0);
+    // 游标是当前页内的位置:只统计当前页帖子数,翻页后与显示一致
+    const curPage = (state?.pages || []).find((pg) => pg.number === (state?.page || 1));
+    const nPosts = curPage ? curPage.posts.length : 0;
     const cur = state?.cursor != null ? `${state.cursor}/${nPosts}` : "—";
     const nList = state?.outlist?.length || 0;
     this.statusText.innerHTML = `普通 · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>0</b>`;
