@@ -189,6 +189,8 @@ class BrowserPanel {
     this.modelId = null;
     this.isModelSearch = false;
     this.prefetched = new Set();  // 已预取的下一页页码(每页仅预取一次)
+    this._stateJson = null;  // 会话解析缓存(getState)
+    this._state = null;
     this.pageInput = el.querySelector("#dbb-page");
     this.prevBtn = el.querySelector("#dbb-prev");
     this.nextBtn = el.querySelector("#dbb-next");
@@ -211,7 +213,7 @@ class BrowserPanel {
     this.resetBtn.onclick = () => this.modeAction("reset_cursor");
     this.listToggleBtn.onclick = () => this.toggleListForSelection();
     this.listInsertBtn.onclick = () => {
-      const state = parseWidget(this.widget?.value);
+      const state = this.getState();
       const sel = state?.selection;
       if (sel == null) return this.setError("先选中一张帖子再插入");
       if ((state?.outlist || []).includes(sel)) return this.setError("该帖已在列表中");
@@ -257,7 +259,7 @@ class BrowserPanel {
     if (this._initialized) return;  // onConfigure 与 setTimeout 可能都触发,只初始化一次
     this._initialized = true;
     // 重开工作流:会话在 widget 里,控件还原筛选条件并重拉当前页(ADR-0002)
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     if (state?.conditions) {
       this.syncControls(state);
       // 先拉站点能力(决定搜索框模式:标签 vs 模型),再重拉结果
@@ -458,7 +460,7 @@ class BrowserPanel {
   toggleListView() {
     this.listView = !this.listView;
     this.listViewBtn.textContent = this.listView ? "退出列表" : "查看列表";
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     if (this.listView) {
       this.renderListView(state);
     } else {
@@ -480,13 +482,23 @@ class BrowserPanel {
     return state?.mode !== "manual" ? state.last_output : null;  // 手动模式无红标
   }
 
+  getState() {
+    // 会话 JSON 随翻页/自动模式增长到多 MB,重复 parse 是面板卡顿主因;
+    // widget 值未变时复用上次解析结果(值变更后首次访问重新解析)
+    const value = this.widget?.value;
+    if (this._stateJson === value) return this._state;
+    this._stateJson = value;
+    this._state = parseWidget(value);
+    return this._state;
+  }
+
   thumbUrl(url) {
     return `${API_BASE}/image?url=${encodeURIComponent(url)}`;
   }
 
   prefetchNextPage() {
     if (!this.hasNext) return;  // 最后一页不预取
-    const sort = parseWidget(this.widget?.value)?.conditions?.sort;
+    const sort = this.getState()?.conditions?.sort;
     if (sort === "random") return;  // 随机重抽样,预取无效
     const target = this.page + 1;
     if (this.prefetched.has(target)) return;  // 每页仅预取一次
@@ -543,7 +555,7 @@ class BrowserPanel {
   }
 
   toggleListForSelection() {
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     const sel = state?.selection;
     if (sel == null) return this.setError("先选中一张帖子再操作列表");
     const inList = (state?.outlist || []).includes(sel);
@@ -629,7 +641,7 @@ class BrowserPanel {
   }
 
   showLightbox(id) {
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     if (!state) return;
     const post = this.findPost(state, id);
     if (!post) return;
@@ -707,7 +719,7 @@ class BrowserPanel {
   }
 
   selectPost(id) {
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     if (!state || !state.pages) return;
     state.selection = state.selection === id ? null : id;
     if (state.selection != null && state.mode !== "list") {
@@ -725,7 +737,7 @@ class BrowserPanel {
 
   renderFooter(selId) {
     const text = this.el.querySelector("#dbb-footer-text");
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     if (!state || selId == null) {
       text.textContent = "未选中 — 点击缩略图选中;执行队列输出所选帖子";
       this.updateListToggle(null);
@@ -823,7 +835,7 @@ class BrowserPanel {
     excludeInput.value = this.excludeTags || "";
     excludeInput.disabled = !this.hasExcludeTags;  // civitai 无标签体系
     excludeInput.addEventListener("input", () => { this.excludeTags = excludeInput.value; });
-    outfilterInput.value = (parseWidget(this.widget?.value)?.out_filter || []).join(", ");
+    outfilterInput.value = (this.getState()?.out_filter || []).join(", ");
     outfilterInput.disabled = this.promptIsEmbedded;  // 内嵌提示词不适用
     const hideVideosInput = overlay.querySelector("#dbb-set-hidevideos");
     hideVideosInput.checked = !!this.hideVideos;
@@ -903,7 +915,7 @@ class BrowserPanel {
   }
 
   updateListToggle(selId) {
-    const state = parseWidget(this.widget?.value);
+    const state = this.getState();
     const inList = selId != null && (state?.outlist || []).includes(selId);
     this.listToggleBtn.textContent = inList ? "从列表移除" : "加入列表";
   }
