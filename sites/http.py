@@ -80,7 +80,7 @@ class HttpAdapter(Protocol):
 
 
 class RequestsHttpAdapter:
-    def __init__(self, min_interval: float = 0.6, timeout: float = 15.0):
+    def __init__(self, min_interval: float = 0.6, timeout: tuple[float, float] = (10.0, 30.0)):
         import requests  # noqa: PLC0415 — lazy: tests never need requests installed
 
         self._session = requests.Session()
@@ -110,23 +110,39 @@ class RequestsHttpAdapter:
     def get_json(self, url: str, params: dict[str, Any] | None = None,
                  auth: tuple[str, str] | None = None) -> Any:
         self._throttle()  # API 调用限流;图片走 CDN,不限
-        return self._check(self._session.get(url, params=params, timeout=self._timeout, auth=auth), url).json()
+        try:
+            resp = self._session.get(url, params=params, timeout=self._timeout, auth=auth)
+        except Exception as e:  # noqa: BLE001 — 网络层任何失败都转 TransportError
+            raise self._wrap(url, e) from e
+        return self._check(resp, url).json()
 
     def _headers_for(self, url: str) -> dict[str, str]:
         referer = referer_for(url)
         return {"Referer": referer} if referer else {}
 
+    def _wrap(self, url: str, exc: Exception) -> TransportError:
+        # requests 网络层错误(超时/连接失败)统一包装:路由按 TransportError 处理(502),
+        # 而不是裸异常炸成 500
+        return TransportError(f"请求失败: {url} ({exc})")
+
     def get_bytes(self, url: str) -> bytes:
-        return self._check(
-            self._session.get(url, timeout=self._timeout * 2, headers=self._headers_for(url)), url
-        ).content
+        try:
+            resp = self._session.get(
+                url, timeout=self._timeout, headers=self._headers_for(url),
+            )
+        except Exception as e:  # noqa: BLE001 — 网络层任何失败都转 TransportError
+            raise self._wrap(url, e) from e
+        return self._check(resp, url).content
 
     def iter_bytes(self, url: str, chunk_size: int = 65536) -> Iterator[bytes]:
         """流式读取:面板图片代理逐块转发用;响应校验在首个 chunk 前触发。"""
-        resp = self._check(
-            self._session.get(url, timeout=self._timeout * 2, stream=True, headers=self._headers_for(url)),
-            url,
-        )
+        try:
+            resp = self._session.get(
+                url, timeout=self._timeout, stream=True, headers=self._headers_for(url),
+            )
+        except Exception as e:  # noqa: BLE001
+            raise self._wrap(url, e) from e
+        resp = self._check(resp, url)
         try:
             yield from resp.iter_content(chunk_size=chunk_size)
         finally:
