@@ -44,8 +44,8 @@ const PANEL_CSS = `
 .dbb-grid{flex:1;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,140px);grid-auto-rows:140px;gap:6px;min-height:120px;align-content:start}
 .dbb-grid .thumb{position:relative;border-radius:5px;overflow:hidden;cursor:pointer;border:2px solid transparent;background:#141419}
 .dbb-grid .thumb img{width:100%;height:100%;display:block;object-fit:cover}
-.dbb-grid .thumb.sel{border-color:#4f8cff;box-shadow:0 0 0 2px rgba(79,140,255,.35)}
-.dbb-grid .thumb.current{border-color:#ff5f56;box-shadow:0 0 0 2px rgba(255,95,86,.35)}
+.dbb-grid .thumb.sel{border:3px solid #4f8cff;box-shadow:0 0 0 3px rgba(79,140,255,.45)}
+.dbb-grid .thumb.current{border:3px solid #ff5f56;box-shadow:0 0 0 3px rgba(255,95,86,.45)}
 .dbb-grid .thumb.failed img{opacity:.35}
 .dbb-grid .thumb.placeholder{display:flex;align-items:center;justify-content:center;color:#8a8a94;font-size:12px;cursor:pointer}
 .dbb-grid .thumb .badge{position:absolute;top:3px;left:3px;font-size:9px;border-radius:3px;padding:0 4px;color:#fff}
