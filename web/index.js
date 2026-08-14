@@ -569,7 +569,18 @@ class BrowserPanel {
     this.updateStatus(state);
     this.updateListToggle(state?.selection ?? null);
     this.renderFooter(state?.selection ?? null);
+    this.applyMarks(state);  // 执行后红标/失败标记即时更新(不重绘网格)
     if (this.listView) this.renderListView(state);  // 列表操作后视图即时更新
+  }
+
+  applyMarks(state) {
+    const currentId = this.currentOutputId(state);
+    const failedSet = new Set(state?.failed || []);
+    this.grid.querySelectorAll(".thumb").forEach((t) => {
+      const id = +t.dataset.id;
+      t.classList.toggle("current", currentId != null && id === currentId);
+      t.classList.toggle("failed", failedSet.has(id));
+    });
   }
 
   updateMode(mode) {
