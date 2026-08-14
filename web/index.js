@@ -118,9 +118,9 @@ class BrowserPanel {
     el.className = "dbb-panel";
     el.innerHTML = `
       <div class="dbb-row">
-        <select id="dbb-site" title="T1 仅 danbooru">
+        <select id="dbb-site" title="站点">
           <option value="danbooru" selected>danbooru</option>
-          <option disabled>gelbooru (后续版本)</option>
+          <option value="gelbooru">gelbooru</option>
           <option disabled>civitai (后续版本)</option>
         </select>
         <div class="dbb-searchwrap">
@@ -172,8 +172,23 @@ class BrowserPanel {
       </div>
     `;
     el.querySelector("#dbb-search-btn").onclick = () => this.doSearch();
+    el.querySelector("#dbb-site").addEventListener("change", async () => {
+      // 切站时按能力调整评级控件(gelbooru 只能单选)
+      try {
+        const resp = await fetch(
+          `${API_BASE}/capabilities?site=${encodeURIComponent(el.querySelector("#dbb-site").value)}`,
+        );
+        const data = await resp.json();
+        if (data.multi_rating !== undefined) this.multiRating = data.multi_rating !== false;
+        if (!this.multiRating) {
+          const on = el.querySelectorAll(".dbb-chip.on");
+          on.forEach((x, i) => { if (i > 0) x.classList.remove("on"); });  // 只保留第一个
+        }
+      } catch { /* 搜索时会再同步 */ }
+    });
     this.page = 1;
     this.hasNext = false;
+    this.multiRating = true;
     this.pageInput = el.querySelector("#dbb-page");
     this.prevBtn = el.querySelector("#dbb-prev");
     this.nextBtn = el.querySelector("#dbb-next");
@@ -217,7 +232,18 @@ class BrowserPanel {
     });
     el.querySelectorAll(".dbb-chip").forEach((c) => {
       c.onclick = () => {
-        // 至少保留一个评级:全关 = 不过滤,语义不清
+        if (this.multiRating === false) {
+          // 站点评级单选(如 gelbooru 无 OR 运算):点选即唯一选中;
+          // 点已选中的清空(空 = 全部不过滤,可回到无筛选)
+          if (c.classList.contains("on")) {
+            c.classList.remove("on");
+          } else {
+            el.querySelectorAll(".dbb-chip").forEach((x) => x.classList.remove("on"));
+            c.classList.add("on");
+          }
+          return;
+        }
+        // 多选:至少保留一个评级(全关 = 不过滤,语义不清)
         if (c.classList.contains("on") && el.querySelectorAll(".dbb-chip.on").length === 1) return;
         c.classList.toggle("on");
       };
@@ -417,6 +443,7 @@ class BrowserPanel {
     this.widget.value = res.state_json;
     this.page = res.page;
     this.hasNext = !!res.has_next;
+    this.multiRating = res.capabilities?.multi_rating !== false;  // 站点能力:评级多选/单选
     this.pageInput.value = res.page;
     this.updateNavButtons();
     this.renderGrid(res.posts);
@@ -468,9 +495,9 @@ class BrowserPanel {
     if (!state) return;
     const post = this.findPost(state, id);
     if (!post) return;
-    const raw = post.raw || {};
-    const sample = raw.large_file_url || raw.preview_file_url || post.file_url;
-    const original = raw.file_url || post.file_url;
+    // 归一化字段:适配器已把各站预览/大图/原图映射到 Post(ADR-0003)
+    const sample = post.sample_url || post.preview_url || post.file_url;
+    const original = post.file_url;
     const hasOriginal = original && original !== sample;
     const overlay = document.createElement("div");
     overlay.className = "dbb-lightbox";

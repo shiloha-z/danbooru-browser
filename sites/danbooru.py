@@ -20,6 +20,8 @@ def parse_post(d: dict[str, Any], site: str) -> Post:
         id=int(d["id"]),
         site=site,
         file_url=d.get("file_url") or d.get("large_file_url") or "",
+        preview_url=d.get("preview_file_url") or d.get("large_file_url") or "",
+        sample_url=d.get("large_file_url") or "",
         tags=tuple((d.get("tag_string") or "").split()),
         rating=d.get("rating", ""),
         score=int(d.get("score", 0) or 0),

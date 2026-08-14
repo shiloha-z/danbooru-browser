@@ -25,6 +25,8 @@ class Post:
     id: int
     site: str
     file_url: str
+    preview_url: str = ""  # 面板网格缩略图(站点各自字段名不同,适配器归一)
+    sample_url: str = ""  # 弹层大图(中等尺寸);原图 = file_url
     tags: tuple[str, ...] = ()
     rating: str = ""
     score: int = 0
@@ -37,6 +39,8 @@ class Post:
             "id": self.id,
             "site": self.site,
             "file_url": self.file_url,
+            "preview_url": self.preview_url,
+            "sample_url": self.sample_url,
             "tags": list(self.tags),
             "rating": self.rating,
             "score": self.score,
@@ -51,6 +55,8 @@ class Post:
             id=int(d["id"]),
             site=d["site"],
             file_url=d.get("file_url", ""),
+            preview_url=d.get("preview_url", ""),
+            sample_url=d.get("sample_url", ""),
             tags=tuple(d.get("tags", ())),
             rating=d.get("rating", ""),
             score=int(d.get("score", 0)),

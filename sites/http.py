@@ -17,7 +17,10 @@ from core.errors import TransportError
 
 # 面板图片代理只放行站点自己的 CDN 域名,防止把 ComfyUI 变成任意 URL 代理(SSRF)。
 # 新站点接入时在此追加其图片域名。
-IMAGE_HOST_ALLOWLIST = frozenset({"danbooru.donmai.us", "cdn.donmai.us"})
+IMAGE_HOST_ALLOWLIST = frozenset({
+    "danbooru.donmai.us", "cdn.donmai.us",
+    "gelbooru.com", "img2.gelbooru.com", "img3.gelbooru.com", "img4.gelbooru.com",
+})
 
 _IMAGE_CONTENT_TYPES = {
     ".jpg": "image/jpeg",

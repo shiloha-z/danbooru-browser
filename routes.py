@@ -20,11 +20,9 @@ from sites.http import HttpAdapter, image_content_type, is_allowed_image_url
 
 def display_post(post: Post) -> dict:
     """面板展示数据:预览图 URL + 状态徽标;原始数据已在会话 JSON 里。"""
-    raw = post.raw or {}
-    preview = raw.get("preview_file_url") or raw.get("large_file_url") or post.file_url
     return {
         "id": post.id,
-        "preview_url": preview,
+        "preview_url": post.preview_url or post.file_url,
         "rating": post.rating,
         "score": post.score,
         "animated": post.animated,
@@ -134,6 +132,16 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
             }
         )
 
+    @server.routes.get("/danbooru_browser/capabilities")
+    async def capabilities(request: web.Request) -> web.Response:
+        """站点能力:面板切换站点时调整控件(如 gelbooru 评级只能单选)。"""
+        site_name = request.query.get("site", "danbooru")
+        try:
+            site = browser.site(site_name)
+        except StateError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        return web.json_response({"site": site_name, "multi_rating": site.capabilities.multi_rating})
+
     @server.routes.post("/danbooru_browser/action")
     async def action(request: web.Request) -> web.Response:
         """面板动作:模式切换 / 游标 / 列表操作;返回新会话(ADR-0003)。"""
@@ -202,5 +210,9 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
                 "posts": [display_post(p) for p in result.posts],
                 "page": result.page,
                 "has_next": result.has_next,
+                "capabilities": {
+                    # 面板按站点能力调整评级控件(如 gelbooru 只能单选)
+                    "multi_rating": browser.site(conditions.site).capabilities.multi_rating,
+                },
             }
         )
