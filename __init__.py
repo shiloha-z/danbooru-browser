@@ -17,7 +17,7 @@ except ImportError:  # 测试环境:无 comfy 依赖,包只做占位(可被 pyte
     PromptServer = None
 
 if PromptServer is not None:  # 正常 ComfyUI 加载路径
-    from wiring import get_browser, get_http
+    from wiring import get_browser, get_cache, get_http
     from node import DanbooruBrowserNode
     from routes import setup_routes
 
@@ -25,7 +25,7 @@ if PromptServer is not None:  # 正常 ComfyUI 加载路径
     NODE_DISPLAY_NAME_MAPPINGS = {"DanbooruBrowserNode": "Danbooru Browser"}
     WEB_DIRECTORY = "./web"
 
-    setup_routes(PromptServer.instance, get_browser(), get_http())
+    setup_routes(PromptServer.instance, get_browser(), get_http(), get_cache())
 else:
     NODE_CLASS_MAPPINGS = {}
     NODE_DISPLAY_NAME_MAPPINGS = {}

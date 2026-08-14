@@ -14,6 +14,7 @@ from aiohttp import ClientConnectionError, web
 from server import PromptServer
 
 from core.browser import Browser
+from core.disk_cache import DiskImageCache
 from core.errors import StateError, TransportError
 from core.model import Post, SearchConditions
 from sites.credentials import clear_credentials, get_credentials, save_credentials
@@ -45,13 +46,21 @@ def _local_origin_ok(request: web.Request) -> bool:
     return parsed.scheme in ("http", "https") and parsed.netloc == request.host
 
 
-def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> None:
+def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter,
+                 cache: DiskImageCache | None = None) -> None:
+    """cache:共享磁盘缓存(面板图片代理与执行路径共用,见 wiring.get_cache)。"""
+
     @server.routes.get("/danbooru_browser/image")
     async def image(request: web.Request) -> web.Response:
-        """面板图片代理:浏览器直连 CDN 被反爬 403,统一走后端;流式转发,边下边显示。"""
+        """面板图片代理:统一走后端(浏览器直连 CDN 被反爬);磁盘缓存 + 浏览器缓存提速翻页。"""
         url = request.query.get("url", "")
         if not is_allowed_image_url(url):
             return web.Response(status=400, text="不允许的图片地址")
+        headers = {"Content-Type": image_content_type(url), "Cache-Control": "public, max-age=86400"}
+        if cache is not None:
+            cached = await asyncio.to_thread(cache.get, url)
+            if cached is not None:
+                return web.Response(body=cached, headers=headers)
         queue: asyncio.Queue = asyncio.Queue()  # 无界:块在内存中最多一张图大小
         loop = asyncio.get_running_loop()
         end = object()
@@ -73,20 +82,27 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
         if first is end or isinstance(first, Exception):
             await task
             return web.Response(status=502, text="图片读取失败" if first is end else str(first))
-        response = web.StreamResponse(headers={"Content-Type": image_content_type(url)})
+        response = web.StreamResponse(headers=headers)
         await response.prepare(request)
+        data = bytearray()
+        completed = False
         try:
             await response.write(first)
+            data += first
             while True:
                 chunk = await queue.get()
                 if terminal(chunk):
                     break  # 已开始响应,中途失败只能截断(浏览器显示加载失败)
                 await response.write(chunk)
+                data += chunk
             await response.write_eof()
+            completed = True
         except (ClientConnectionError, ConnectionResetError):
             pass  # 客户端断开:截断即可
         finally:
             await task  # 等生产者收尾,释放连接
+        if completed and cache is not None:
+            await asyncio.to_thread(cache.put, url, bytes(data))  # 完整下载才缓存(回看同页秒开)
         return response
 
     @server.routes.get("/danbooru_browser/tags")

@@ -11,6 +11,7 @@ from sites.http import RequestsHttpAdapter
 
 _adapter: RequestsHttpAdapter | None = None
 _browser: Browser | None = None
+_cache: DiskImageCache | None = None
 
 
 def get_http() -> RequestsHttpAdapter:
@@ -20,9 +21,15 @@ def get_http() -> RequestsHttpAdapter:
     return _adapter
 
 
+def get_cache() -> DiskImageCache:
+    global _cache
+    if _cache is None:
+        _cache = DiskImageCache(os.path.join(os.path.dirname(__file__), "cache"))
+    return _cache
+
+
 def get_browser() -> Browser:
     global _browser
     if _browser is None:
-        cache_dir = os.path.join(os.path.dirname(__file__), "cache")
-        _browser = Browser(build_registry(get_http()), image_cache=DiskImageCache(cache_dir))
+        _browser = Browser(build_registry(get_http()), image_cache=get_cache())
     return _browser
