@@ -67,7 +67,7 @@ class SearchConditions:
     site: str
     tags: tuple[str, ...] = ()
     exclude_tags: tuple[str, ...] = ()
-    ratings: frozenset[str] = frozenset({"g"})  # 默认普通;用户手动多选
+    ratings: frozenset[str] = frozenset({"g", "s", "q", "e"})
     sort: str = "new"  # new | score | random,站点语义映射
     per_page: int = 40
 
@@ -87,7 +87,7 @@ class SearchConditions:
             site=d["site"],
             tags=tuple(d.get("tags", ())),
             exclude_tags=tuple(d.get("exclude_tags", ())),
-            ratings=frozenset(d.get("ratings", ("g",))),
+            ratings=frozenset(d.get("ratings", ("g", "s", "q", "e"))),
             sort=d.get("sort", "new"),
             per_page=int(d.get("per_page", 40)),
         )

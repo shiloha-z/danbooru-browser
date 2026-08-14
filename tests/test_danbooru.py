@@ -84,7 +84,7 @@ class TestSearch:
         assert url == "https://danbooru.donmai.us/posts.json"
         assert params["page"] == 3
         assert params["limit"] == 40
-        assert params["tags"] == "1girl rating:g order:id_desc"  # 默认评级普通 + 最新映射
+        assert params["tags"] == "1girl order:id_desc"  # 默认 sort=new → 显式最新映射
         assert [p.id for p in result.posts] == [1, 2]
         assert result.page == 3
         assert not result.has_next  # 2 < limit 40
@@ -116,8 +116,7 @@ class TestSearch:
         http = FakeHttp()
         http.json_responses["https://danbooru.donmai.us/posts.json"] = []
         site = DanbooruSite(http)
-        site.search(SearchConditions(site="danbooru", tags=("1girl",),
-                                     ratings=frozenset({"g", "s", "q", "e"}), per_page=20), 1)
+        site.search(SearchConditions(site="danbooru", tags=("1girl",), per_page=20), 1)
         tags_param = http.json_calls[-1][1]["tags"]
         assert "rating:" not in tags_param
 
@@ -136,11 +135,11 @@ class TestSearch:
         site.search(SearchConditions(site="danbooru", sort="random", per_page=20), 1)
         # 随机必须带 seed:裸 order:random 在 danbooru API 上 500(2026-08 实测)
         random_tags = http.json_calls[-1][1]["tags"]
-        seed = random_tags.split("order:random:")[1]
-        assert seed.isdigit()
+        assert random_tags.startswith("order:random:")
+        assert random_tags[len("order:random:"):].isdigit()
         site.search(SearchConditions(site="danbooru", sort="new", per_page=20), 1)
         # 最新显式映射 order:id_desc(danbooru 的 order:id 是升序旧帖优先)
-        assert http.json_calls[-1][1]["tags"] == "rating:g order:id_desc"
+        assert http.json_calls[-1][1]["tags"] == "order:id_desc"
 
     def test_exclude_tags_mapped_with_dash(self):
         http = FakeHttp()
@@ -164,8 +163,8 @@ class TestSearch:
         site = DanbooruSite(http)
         result = site.search(SearchConditions(site="danbooru", tags=("1girl",), sort="score", per_page=20), 1)
         assert [p.id for p in result.posts] == [1]
-        assert http.json_calls[0][1]["tags"] == "1girl rating:g order:score"
-        assert http.json_calls[1][1]["tags"] == "1girl rating:g order:rank"
+        assert http.json_calls[0][1]["tags"] == "1girl order:score"
+        assert http.json_calls[1][1]["tags"] == "1girl order:rank"
 
     def test_non_score_500_does_not_fall_back(self):
         http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"])
