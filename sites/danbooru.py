@@ -44,10 +44,13 @@ class DanbooruSite:
         all_ratings = self.capabilities.ratings  # 能力表是唯一来源(ADR-0003)
         tags = list(conditions.tags)
         if conditions.ratings != frozenset(all_ratings):
-            # danbooru 空格分隔是 AND,多选评级必须用 ~(OR)连接,否则必然空结果
-            selected = [f"rating:{r}" for r in all_ratings if r in conditions.ratings]
-            if selected:
-                tags.append("~".join(selected))
+            selected = [r for r in all_ratings if r in conditions.ratings]
+            if len(selected) == 1:
+                tags.append(f"rating:{selected[0]}")
+            elif len(selected) > 1:
+                # danbooru 的 ~ OR 只匹配第一个评级(2026-08 实测,其余评级全丢);
+                # 必须排除未选评级(-rating: 元标签负数不触发 422)
+                tags += [f"-rating:{r}" for r in all_ratings if r not in conditions.ratings]
         if conditions.sort == "score":
             tags.append("order:score")
         elif conditions.sort == "random":
@@ -73,17 +76,21 @@ class DanbooruSite:
                 # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
                 params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
                 data = self._http.get_json(url, params=params, auth=auth)
-            elif e.status == 422 and any(t.startswith("-") for t in params["tags"].split()):
-                # danbooru 422 组合(2026-08 实测):单负标签+order,或多个负标签。
-                # 重试:去掉 order,只保留第一个负标签,其余负标签客户端过滤
-                # (danbooru 无法服务端表达多排除;分页计数按过滤后算,可接受偏差)。
+            elif e.status == 422 and any(t.startswith("-") and not t.startswith("-rating:")
+                                         for t in params["tags"].split()):
+                # danbooru 422 组合(2026-08 实测):单普通负标签+order,或多个普通负标签
+                # (评级负数 -rating: 不触发)。重试:去掉 order,只保留第一个普通负标签,
+                # 其余普通负标签客户端过滤;评级负数保留在查询里
                 tokens = params["tags"].split()
-                negatives = [t for t in tokens if t.startswith("-")]
-                kept = [t for t in tokens if (not t.startswith("-") or t == negatives[0]) and not t.startswith("order:")]
+                regular_negs = [t for t in tokens if t.startswith("-") and not t.startswith("-rating:")]
+                rating_negs = [t for t in tokens if t.startswith("-rating:")]
+                kept = [t for t in tokens
+                        if (not t.startswith("-") or t in regular_negs[:1] + rating_negs)
+                        and not t.startswith("order:")]
                 data = self._http.get_json(
                     url, params={**params, "tags": " ".join(kept)}, auth=auth,
                 )
-                data = [d for d in data if not self._matches_negatives(d, negatives[1:])]
+                data = [d for d in data if not self._matches_negatives(d, regular_negs[1:])]
             else:
                 raise
         posts = tuple(parse_post(d, "danbooru") for d in data)

@@ -100,7 +100,7 @@ class TestSearch:
         result = site.search(SearchConditions(site="danbooru", per_page=2), 1)
         assert result.has_next
 
-    def test_partial_ratings_joined_with_or(self):
+    def test_partial_ratings_exclude_unselected(self):
         http = FakeHttp()
         http.json_responses["https://danbooru.donmai.us/posts.json"] = []
         site = DanbooruSite(http)
@@ -110,8 +110,9 @@ class TestSearch:
             1,
         )
         tags_param = http.json_calls[-1][1]["tags"]
-        # danbooru 空格分隔是 AND:多选评级必须用 ~(OR),否则选多个评级必然空结果
-        assert "rating:g~rating:e" in tags_param
+        # danbooru 的 ~ OR 只匹配第一个评级(实测);多选必须排除未选评级
+        assert "-rating:q" in tags_param and "-rating:s" in tags_param
+        assert "rating:g~" not in tags_param
         assert "order:score" in tags_param
 
     def test_all_ratings_selected_emits_no_rating_filter(self):
