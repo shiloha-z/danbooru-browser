@@ -275,6 +275,9 @@ class BrowserPanel {
     let timer = null;
     let seq = 0;  // 丢弃过期响应:慢请求返回时输入框已输入新内容
     const hide = () => { box.style.display = "none"; };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.doSearch();
+    });
     input.addEventListener("input", () => {
       clearTimeout(timer);
       if (this.isModelSearch) this.modelId = null;  // 编辑输入 = 放弃已选模型
@@ -379,6 +382,16 @@ class BrowserPanel {
   async doSearch() {
     this.setError("");
     try {
+      // 模型模式:未从下拉选择时,自动选中第一个模型结果
+      if (this.isModelSearch && !this.modelId) {
+        const q = this.el.querySelector("#dbb-search").value.trim();
+        if (!q) return this.setError("civitai 需要先选择模型:搜索模型名 → 选择模型");
+        const resp = await fetch(`${API_BASE}/models?q=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        if (data.error || !data.models?.length) return this.setError("没有找到匹配的模型");
+        this.modelId = data.models[0].id;
+        this.el.querySelector("#dbb-search").value = data.models[0].name;
+      }
       const conditions = this.readConditions();
       const res = await apiSearch(this.widget?.value || "", conditions, this.proxyWidget?.value || "");
       if (res.error) {
