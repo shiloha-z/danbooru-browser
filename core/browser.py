@@ -98,6 +98,7 @@ class Browser:
                 continue  # 不在已加载结果:按失败跳过
             output = self._post_output(state, post, prefer_original)
             if output.kind is OutputKind.IMAGE:
+                state.last_output = post_id  # 当前输出帖(面板红标)
                 return output, state
             self._mark_failed(state, post_id)
         return Output(OutputKind.EMPTY, reason="列表中连续多张失败,请移除失败项"), state
@@ -132,6 +133,7 @@ class Browser:
             output = self._post_output(state, post, prefer_original)
             if output.kind is OutputKind.IMAGE:
                 state.cursor += 1
+                state.last_output = post.id  # 当前输出帖(面板红标)
                 return output, state
             # 失败/动画:跳过并标红,继续下一张
             self._mark_failed(state, post.id)
@@ -208,6 +210,7 @@ class Session:
             mode=self.state.mode,
             out_filter=self.state.out_filter,
             failed=[],  # 新搜索结果,旧失败标记作废
+            last_output=None,  # 新搜索结果,旧红标作废
         )
         return result
 
@@ -235,6 +238,7 @@ class Session:
             mode=self.state.mode,
             out_filter=self.state.out_filter,
             failed=self.state.failed,  # 失败标记跨翻页保留
+            last_output=self.state.last_output,  # 当前输出红标跨翻页保留
         )
         return result
 

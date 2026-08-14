@@ -45,10 +45,11 @@ const PANEL_CSS = `
 .dbb-grid .thumb{position:relative;border-radius:5px;overflow:hidden;cursor:pointer;border:2px solid transparent;background:#141419}
 .dbb-grid .thumb img{width:100%;height:100%;display:block;object-fit:cover}
 .dbb-grid .thumb.sel{border-color:#4f8cff;box-shadow:0 0 0 2px rgba(79,140,255,.35)}
-.dbb-grid .thumb.failed{border-color:#ff5f56;box-shadow:0 0 0 2px rgba(255,95,86,.3)}
+.dbb-grid .thumb.current{border-color:#ff5f56;box-shadow:0 0 0 2px rgba(255,95,86,.35)}
 .dbb-grid .thumb.failed img{opacity:.35}
 .dbb-grid .thumb.placeholder{display:flex;align-items:center;justify-content:center;color:#8a8a94;font-size:12px;cursor:pointer}
 .dbb-grid .thumb .badge{position:absolute;top:3px;left:3px;font-size:9px;border-radius:3px;padding:0 4px;color:#fff}
+.dbb-grid .thumb .fail-badge{position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#ff5f56;color:#fff;font-size:11px;line-height:16px;text-align:center}
 .dbb-empty{color:#8a8a94;text-align:center;padding:34px 10px;grid-column:1/-1}
 .dbb-empty .big{font-size:26px;margin-bottom:6px}
 .dbb-footer{min-height:34px;border:1px dashed #3a3a42;border-radius:5px;padding:4px 8px;font-size:11px;color:#8a8a94;display:flex;gap:6px;align-items:center}
@@ -467,7 +468,7 @@ class BrowserPanel {
       const curPage = this.currentPage(state);
       if (!curPage?.posts?.length) this.renderEmpty("没有符合条件的帖子");
       else {
-        this.renderGrid(curPage.posts, new Set(state?.failed || []));
+        this.renderGrid(curPage.posts, new Set(state?.failed || []), this.currentOutputId(state));
         this.applySelectionHighlight(state);
       }
     }
@@ -475,6 +476,10 @@ class BrowserPanel {
 
   currentPage(state) {
     return (state?.pages || []).find((pg) => pg.number === (this.page || 1));
+  }
+
+  currentOutputId(state) {
+    return state?.mode !== "manual" ? state.last_output : null;  // 手动模式无红标
   }
 
   applySelectionHighlight(state) {
@@ -495,7 +500,7 @@ class BrowserPanel {
       this.renderEmpty("列表为空 — 在面板中把帖子加入列表");
       return;
     }
-    this.renderGrid(posts, new Set(state.failed || []));
+    this.renderGrid(posts, new Set(state.failed || []), this.currentOutputId(state));
     this.applySelectionHighlight(state);
   }
 
@@ -552,7 +557,7 @@ class BrowserPanel {
       this.listViewBtn.textContent = "查看列表";
     }
     const state = parseWidget(res.state_json);
-    this.renderGrid(res.posts, new Set(state?.failed || []));
+    this.renderGrid(res.posts, new Set(state?.failed || []), this.currentOutputId(state));
     this.applySelectionHighlight(state);
     if (this.isModelSearch && this.modelId) {
       // civitai:搜索框显示模型名(重开工作流时从首帖 raw 还原)
@@ -570,7 +575,7 @@ class BrowserPanel {
     this.nextBtn.disabled = !this.hasNext;
   }
 
-  renderGrid(posts, failedSet) {
+  renderGrid(posts, failedSet, currentId) {
     if (!posts?.length) {
       this.renderEmpty("没有符合条件的帖子");
       return;
@@ -580,7 +585,8 @@ class BrowserPanel {
         (p, i) => p.loaded === false
           ? `<div class="thumb placeholder" data-id="${p.id}" title="#${p.id} · 不在已加载结果中,可选中后从列表移除">#${p.id}</div>`
           : `
-      <div class="thumb${failedSet?.has(p.id) ? " failed" : ""}" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
+      <div class="thumb${failedSet?.has(p.id) ? " failed" : ""}${currentId != null && p.id === currentId ? " current" : ""}" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
+        ${failedSet?.has(p.id) ? '<span class="fail-badge">✕</span>' : ""}
         <span class="badge" style="background:${RATING_COLOR[p.rating] || "#666"}">${p.id}</span>
         <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="${i < 12 ? "eager" : "lazy"}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
       </div>`,
@@ -661,9 +667,10 @@ class BrowserPanel {
     });
     document.addEventListener("keydown", onKey);
     document.body.appendChild(overlay);
-    if (post.animated && ["webm", "swf"].includes(post.raw?.file_ext)) {
+    // gif 可在浏览器显示;webm/swf/mp4 视频按动画提示(mp4 的扩展名在 URL 里)
+    if (post.animated && !String(sample).toLowerCase().endsWith(".gif")) {
       toggle.disabled = true;
-      fail("动画帖(webm/swf),暂不支持大图预览");
+      fail("动画帖(视频),暂不支持大图预览");
       return;
     }
     if (!hasOriginal) toggle.disabled = true;  // 原图不可用时切换是 no-op

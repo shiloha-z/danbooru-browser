@@ -595,6 +595,62 @@ class TestFailureStrategy:
         assert session.state.failed == []  # 新搜索重置失败标记
 
 
+class TestCurrentOutputMark:
+    """T9 续:#19 红色=自动/列表当前输出,失败改 ✕ 徽标。"""
+
+    def test_auto_output_records_last_output(self):
+        http = FakeHttp()
+        posts = [make_post(1), make_post(2)]
+        for p in posts:
+            http.bytes_responses[p.file_url] = IMAGE_BYTES
+            http.bytes_responses[p.sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)],
+        )))
+        session.set_mode("auto")
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE
+        assert session_from_json(s).last_output == 1  # 当前输出帖记录
+
+    def test_list_output_records_last_output(self):
+        http = FakeHttp()
+        posts = [make_post(1), make_post(2)]
+        for p in posts:
+            http.bytes_responses[p.file_url] = IMAGE_BYTES
+            http.bytes_responses[p.sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)], outlist=[2, 1],
+        )))
+        session.set_mode("list")
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 2
+        assert session_from_json(s).last_output == 2
+
+    def test_manual_output_does_not_record(self):
+        http = FakeHttp()
+        posts = [make_post(1), make_post(2, tags=("2girls", "hug"))]
+        for p in posts:
+            http.bytes_responses[p.file_url] = IMAGE_BYTES
+            http.bytes_responses[p.sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        out, s = browser.next_output(state_with_selection(http, selection=2))
+        assert out.kind is OutputKind.IMAGE
+        assert session_from_json(s).last_output is None  # 手动模式无红标
+
+    def test_last_output_serializes_and_resets_on_search(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(9).raw)]
+        browser = build_browser(http)
+        state = SessionState(conditions=SearchConditions(site="danbooru"),
+                             pages=[Page(1, [make_post(1)])], last_output=1)
+        assert session_from_json(session_to_json(state)).last_output == 1  # 往返
+        session = browser.restore(session_to_json(state))
+        session.search(SearchConditions(site="danbooru"))
+        assert session.state.last_output is None  # 新搜索清理红标
+
+
 class TestOutputFilter:
     """输出过滤:只剔除 Prompt 字符串中的标签,元数据忠实(issue #13)。"""
 
