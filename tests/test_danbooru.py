@@ -203,7 +203,18 @@ class TestSearch:
         site = DanbooruSite(http)
         with pytest.raises(TransportError):
             site.search(SearchConditions(site="danbooru", tags=("1girl",), per_page=20), 1)
-        assert len(http.json_calls) == 1  # 无排除标签不重试
+        assert len(http.json_calls) == 1  # 无负标签不重试
+
+    def test_hide_videos_422_retries_without_order(self):
+        # hide_videos 产生的 -video 负标签同样触发 422 降级重试(之前只认 exclude_tags)
+        http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"], status=422)
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [raw_post(1)]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", tags=("1girl",),
+                                              hide_videos=True, per_page=20), 1)
+        assert [p.id for p in result.posts] == [1]
+        assert "-video" in http.json_calls[0][1]["tags"] and "order:" in http.json_calls[0][1]["tags"]
+        assert "order:" not in http.json_calls[1][1]["tags"]  # 重试已去 order
 
     def test_basic_auth_when_configured(self, monkeypatch, tmp_path):
         from sites import credentials as cred_mod

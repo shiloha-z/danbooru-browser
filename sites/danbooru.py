@@ -73,9 +73,10 @@ class DanbooruSite:
                 # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
                 params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
                 data = self._http.get_json(url, params=params, auth=auth)
-            elif e.status == 422 and conditions.exclude_tags and re.search(r"\border:", params["tags"]):
-                # danbooru:正标签+负标签+order 元标签组合稳定 422(2026-08 实测,
-                # 参数形式的 order 不生效);去掉 order 令牌重试,排序降级为默认
+            elif e.status == 422 and any(t.startswith("-") for t in params["tags"].split()) \
+                    and re.search(r"\border:", params["tags"]):
+                # danbooru:正标签+负标签(排除标签或 -video)+order 元标签组合稳定 422
+                # (2026-08 实测,参数形式的 order 不生效);去掉 order 令牌重试,排序降级为默认
                 params = {**params, "tags": re.sub(r"\s*order:[^\s]*", "", params["tags"]).strip()}
                 data = self._http.get_json(url, params=params, auth=auth)
             else:
