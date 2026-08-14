@@ -57,6 +57,8 @@ const PANEL_CSS = `
 .dbb-lightbox{position:fixed;inset:0;background:rgba(10,10,14,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .dbb-lightbox .dbb-lb-bar{display:flex;gap:8px}
 .dbb-lightbox img{max-width:92vw;max-height:84vh;border-radius:6px;box-shadow:0 6px 40px rgba(0,0,0,.6)}
+.dbb-lightbox input[type=text],.dbb-lightbox textarea,.dbb-lightbox select{background:#141419;border:1px solid #3a3a42;color:#d8d8de;border-radius:5px;padding:4px 8px;outline:none;font:inherit}
+.dbb-lightbox textarea{width:100%;box-sizing:border-box;resize:vertical}
 .dbb-lightbox .dbb-lb-msg{color:#ff5f56;font-size:13px;text-align:center;max-width:80vw}
 `;
 
@@ -825,11 +827,11 @@ class BrowserPanel {
         <div><b>搜索与输出</b></div>
         <div style="display:flex;flex-direction:column;gap:4px">
           <span style="color:#8a8a94;font-size:11px">排除标签(逗号分隔,含任一排除标签的帖子不出现)</span>
-          <input id="dbb-set-exclude" placeholder="如: nude, blood" style="width:100%;box-sizing:border-box">
+          <textarea id="dbb-set-exclude" rows="2" placeholder="如: nude, blood"></textarea>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px">
           <span style="color:#8a8a94;font-size:11px">输出过滤(逗号分隔,提示词输出时剔除的标签)</span>
-          <input id="dbb-set-outfilter" placeholder="如: nsfw, text" style="width:100%;box-sizing:border-box">
+          <textarea id="dbb-set-outfilter" rows="2" placeholder="如: nsfw, text"></textarea>
         </div>
         <label style="display:flex;gap:6px;align-items:center;font-size:11px;color:#d8d8de;cursor:pointer">
           <input type="checkbox" id="dbb-set-hidevideos"> 过滤视频帖
