@@ -40,7 +40,12 @@ class DanbooruBrowserNode:
                 "proxy": ("STRING", {"default": "127.0.0.1:7897"}),
                 # 下载质量:关 = 大图预览(sample,快);开 = 原图(清晰,慢)
                 "original": ("BOOLEAN", {"default": False}),
-            }
+            },
+            "optional": {
+                # AnimaDex 浏览器节点输出的角色/画师标签:面板轮询到新值后
+                # 填入搜索框并触发搜索,然后清空(可重复发送)
+                "来自AnimaDex": ("STRING", {"default": ""}),
+            },
         }
 
     RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
@@ -48,7 +53,7 @@ class DanbooruBrowserNode:
     FUNCTION = "run"
     CATEGORY = "danbooru_browser"
 
-    def run(self, session: str = "", proxy: str = "", original: bool = False):
+    def run(self, session: str = "", proxy: str = "", original: bool = False, **kwargs):
         get_http().set_proxy(proxy)  # 代理是全局 adapter 设置,执行时同步(与面板搜索一致)
         output, new_state = get_browser().next_output(session or "", prefer_original=original)
         if output.kind is OutputKind.IMAGE:

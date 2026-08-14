@@ -190,7 +190,7 @@ class BrowserPanel {
     this.capSeq = 0;
     this.modelId = null;
     this.isModelSearch = false;
-    this.prefetched = new Set();  // 已预取的下一页页码(每页仅预取一次)
+    this.prefetched = new Map();  // 下一页预取任务:复用帖子响应,不只预热缩略图
     this._stateJson = null;  // 会话解析缓存(getState)
     this._state = null;
     this.pageInput = el.querySelector("#dbb-page");
@@ -229,6 +229,22 @@ class BrowserPanel {
     this.excludeTags = "";  // 排除标签在 ⚙ 设置弹层编辑,面板状态供搜索条件使用
     this.hideVideos = false;  // 过滤视频帖(设置弹层勾选)
     this.outFilterSeq = 0;
+    // 来自AnimaDex 输入:轮询到新标签 → 填入搜索框并搜索,然后清空
+    const adQWidget = this.node.widgets?.find((w) => w.name === "来自AnimaDex");
+    let prevAdQ = "";
+    setInterval(() => {
+      if (!adQWidget || !this.el) return;
+      const q = (adQWidget.value || "").trim();
+      if (q && q !== prevAdQ) {
+        prevAdQ = q;
+        adQWidget.value = "";
+        const siteSel = this.el.querySelector("#dbb-site");
+        if (siteSel && this.isModelSearch) siteSel.value = "danbooru";  // 标签搜不了模型
+        const input = this.el.querySelector("#dbb-search");
+        if (input) input.value = q;
+        this.applySiteCapabilities().then(() => this.doSearch());
+      }
+    }, 500);
     this.hasExcludeTags = true;  // 能力旗标:applySiteCapabilities 更新
     this.promptIsEmbedded = false;
     el.querySelectorAll(".dbb-chip").forEach((c) => {
@@ -379,7 +395,7 @@ class BrowserPanel {
 
   async doSearch() {
     this.setError("");
-    this.prefetched.clear();  // 新搜索 = 新的结果身份,旧的预取记录作废
+    this.clearPrefetch();  // 新搜索 = 新的结果身份,旧的预取记录作废
     try {
       // 模型模式:未从下拉选择时,自动选中第一个模型结果
       if (this.isModelSearch && !this.modelId) {
@@ -406,7 +422,19 @@ class BrowserPanel {
   async gotoPage(n) {
     this.setError("");
     try {
-      const res = await apiPage(this.widget?.value || "", n, this.proxyWidget?.value || "");
+      const stateJson = this.widget?.value || "";
+      const prefetched = this.prefetched.get(n);
+      // 预取以同一份会话为基线时可直接复用;选择/模式等状态变化后则正常重拉,
+      // 避免用旧 state_json 覆盖用户刚完成的操作。
+      let request;
+      if (prefetched?.stateJson === stateJson) {
+        request = prefetched.start();
+      } else {
+        if (prefetched?.timer) clearTimeout(prefetched.timer);
+        request = apiPage(stateJson, n, this.proxyWidget?.value || "");
+      }
+      this.prefetched.delete(n);
+      const res = await request;
       if (res.error) {
         this.setError(res.error);
         return;
@@ -494,6 +522,15 @@ class BrowserPanel {
     return this._state;
   }
 
+  adoptState(stateJson, state = parseWidget(stateJson)) {
+    // 写 widget 与更新解析缓存必须是一个操作;否则同一状态会在后续 renderFooter
+    // 中再 parse 一遍,大工作流执行后会产生可见停顿。
+    this.widget.value = stateJson;
+    this._stateJson = stateJson;
+    this._state = state;
+    return state;
+  }
+
   thumbUrl(url) {
     return `${API_BASE}/image?url=${encodeURIComponent(url)}`;
   }
@@ -503,14 +540,31 @@ class BrowserPanel {
     const sort = this.getState()?.conditions?.sort;
     if (sort === "random") return;  // 随机重抽样,预取无效
     const target = this.page + 1;
-    if (this.prefetched.has(target)) return;  // 每页仅预取一次
-    this.prefetched.add(target);
-    clearTimeout(this._prefetchTimer);
-    this._prefetchTimer = setTimeout(async () => {
+    const stateJson = this.widget?.value || "";
+    const old = this.prefetched.get(target);
+    if (old?.stateJson === stateJson) return;  // 同一结果身份仅预取一次
+    if (old?.timer) clearTimeout(old.timer);
+    const job = {
+      stateJson,
+      promise: null,
+      timer: null,
+      start: () => {
+        if (job.timer) clearTimeout(job.timer);
+        if (!job.promise) job.promise = apiPage(stateJson, target, this.proxyWidget?.value || "");
+        return job.promise;
+      },
+    };
+    this.prefetched.set(target, job);
+    job.timer = setTimeout(async () => {
       try {
-        const res = await apiPage(this.widget?.value || "", target, this.proxyWidget?.value || "");
-        if (res.error || !res.posts?.length) return;
-        // 预热缩略图:浏览器缓存 + 代理磁盘缓存同时生效(#20),翻页图片秒出
+        const res = await job.start();
+        if (this.prefetched.get(target) !== job || this.widget?.value !== stateJson) return;
+        if (res.error) {
+          this.prefetched.delete(target);  // 后台失败不污染用户稍后的正常翻页重试
+          return;
+        }
+        if (!res.posts?.length) return;
+        // 帖子响应保留给 gotoPage 复用;同时预热缩略图(#20),翻页无需二次 API 请求。
         res.posts.slice(0, 15).forEach((p) => {
           if (!p.preview_url) return;
           const img = new Image();
@@ -518,6 +572,13 @@ class BrowserPanel {
         });
       } catch { /* 静默:预取失败不影响浏览 */ }
     }, 500);
+  }
+
+  clearPrefetch() {
+    this.prefetched.forEach((job) => {
+      if (job.timer) clearTimeout(job.timer);
+    });
+    this.prefetched.clear();
   }
 
   applySelectionHighlight(state) {
@@ -565,8 +626,7 @@ class BrowserPanel {
   }
 
   applyStateOnly(stateJson) {
-    this.widget.value = stateJson;
-    const state = parseWidget(stateJson);
+    const state = this.adoptState(stateJson);
     this.updateMode(state?.mode);
     this.updateStatus(state);
     this.updateListToggle(state?.selection ?? null);
@@ -595,7 +655,6 @@ class BrowserPanel {
   }
 
   applyResult(res) {
-    this.widget.value = res.state_json;
     this.page = res.page;
     this.hasNext = !!res.has_next;
     this.multiRating = res.capabilities?.multi_rating !== false;  // 站点能力:评级多选/单选
@@ -605,7 +664,7 @@ class BrowserPanel {
       this.listView = false;
       this.listViewBtn.textContent = "查看列表";
     }
-    const state = parseWidget(res.state_json);
+    const state = this.adoptState(res.state_json);
     this.renderGrid(res.posts, new Set(state?.failed || []), this.currentOutputId(state));
     this.applySelectionHighlight(state);
     if (this.isModelSearch && this.modelId) {
@@ -734,13 +793,8 @@ class BrowserPanel {
   selectPost(id) {
     const state = this.getState();
     if (!state || !state.pages) return;
-    state.selection = state.selection === id ? null : id;
-    if (state.selection != null && state.mode !== "list") {
-      // 与后端 select() 语义一致:游标同步到选中帖(自动模式从这继续);列表模式游标是列表位置
-      const idx = (state.pages || []).flatMap((pg) => pg.posts).findIndex((p) => p.id === id);
-      if (idx >= 0) state.cursor = idx;
-    }
-    this.widget.value = JSON.stringify(state);
+    state.selection = state.selection === id ? null : id;  // 选中只是标记,不移动游标
+    this.adoptState(JSON.stringify(state), state);
     this.grid.querySelectorAll(".thumb").forEach((t) => {
       t.classList.toggle("sel", +t.dataset.id === state.selection);
     });
