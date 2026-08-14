@@ -74,10 +74,11 @@ class CivitaiSite:
             params["nsfw"] = mapped[0]
         data = self._http.get_json(f"{self.BASE_URL}/images", params=params)
         items = [d for d in (data.get("items") or []) if isinstance(d, dict)]
+        raw_count = len(items)  # 客户端过滤前的原始计数:has_next 按它算
         if conditions.hide_videos:  # civitai 无标签体系,拉取后过滤视频项
             items = [d for d in items if not parse_post(d).animated]
         posts = tuple(parse_post(d) for d in items)
-        return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
+        return SearchResult(posts=posts, page=page, has_next=raw_count >= conditions.per_page)
 
     def search_models(self, query: str, limit: int = 10) -> list[dict]:
         """模型名搜索:面板选择器候选。"""

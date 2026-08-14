@@ -68,14 +68,17 @@ class DanbooruSite:
         url = f"{self.BASE_URL}/posts.json"
         params = {"page": page, "limit": conditions.per_page, "tags": " ".join(tags)}
         auth = self._auth()
+        raw_count = 0  # 客户端过滤前的原始计数:has_next 按它算,避免翻页提前终止
         try:
             data = self._http.get_json(url, params=params, auth=auth)
+            raw_count = len(data)
         except TransportError as e:
             if e.status == 500 and conditions.sort == "score" and "order:score" in tags:
                 # danbooru 对含普通标签的 order:score 查询稳定 500(2026-08 实测);
                 # 降级 order:rank(评分/时间混合),最接近评分序且可用的排序
                 params = {**params, "tags": params["tags"].replace("order:score", "order:rank")}
                 data = self._http.get_json(url, params=params, auth=auth)
+                raw_count = len(data)
             elif e.status == 422 and any(t.startswith("-") and not t.startswith("-rating:")
                                          for t in params["tags"].split()):
                 # danbooru 422 组合(2026-08 实测):单普通负标签+order,或多个普通负标签
@@ -90,15 +93,16 @@ class DanbooruSite:
                 data = self._http.get_json(
                     url, params={**params, "tags": " ".join(kept)}, auth=auth,
                 )
+                raw_count = len(data)
                 data = [d for d in data if not self._matches_negatives(d, regular_negs[1:])]
             else:
                 raise
         posts = tuple(parse_post(d, "danbooru") for d in data)
         if conditions.hide_videos:
             # -video 标签覆盖绝大多数视频帖;客户端再按 animated 兜底
-            # (gif 动画、缺标签的视频帖;分页计数按过滤后算,可接受偏差)
+            # (gif 动画、缺标签的视频帖)
             posts = tuple(p for p in posts if not p.animated)
-        return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
+        return SearchResult(posts=posts, page=page, has_next=raw_count >= conditions.per_page)
 
     @staticmethod
     def _matches_negatives(d: dict[str, Any], negatives: list[str]) -> bool:

@@ -172,6 +172,17 @@ class TestSearch:
         result = site.search(SearchConditions(site="danbooru", hide_videos=True, per_page=20), 1)
         assert [p.id for p in result.posts] == [3]
 
+    def test_hide_videos_has_next_uses_raw_count(self):
+        # 客户端过滤后每页少于 per_page,但原始计数足够 → 翻页不提前终止
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            raw_post(i, file_ext="webm") for i in range(5)
+        ] + [raw_post(i) for i in range(5, 40)]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", hide_videos=True, per_page=40), 1)
+        assert len(result.posts) == 35  # 过滤后少于 40
+        assert result.has_next  # 原始计数 40 ≥ per_page → 仍有下一页
+
     def test_transport_error_propagates(self):
         http = FakeHttp()  # no canned response
         site = DanbooruSite(http)
