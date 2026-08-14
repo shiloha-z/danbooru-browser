@@ -45,6 +45,8 @@ const PANEL_CSS = `
 .dbb-grid .thumb{position:relative;border-radius:5px;overflow:hidden;cursor:pointer;border:2px solid transparent;background:#141419}
 .dbb-grid .thumb img{width:100%;height:100%;display:block;object-fit:cover}
 .dbb-grid .thumb.sel{border-color:#4f8cff;box-shadow:0 0 0 2px rgba(79,140,255,.35)}
+.dbb-grid .thumb.failed{border-color:#ff5f56;box-shadow:0 0 0 2px rgba(255,95,86,.3)}
+.dbb-grid .thumb.failed img{opacity:.35}
 .dbb-grid .thumb .badge{position:absolute;top:3px;left:3px;font-size:9px;border-radius:3px;padding:0 4px;color:#fff}
 .dbb-empty{color:#8a8a94;text-align:center;padding:34px 10px;grid-column:1/-1}
 .dbb-empty .big{font-size:26px;margin-bottom:6px}
@@ -492,8 +494,8 @@ class BrowserPanel {
     this.multiRating = res.capabilities?.multi_rating !== false;  // 站点能力:评级多选/单选
     this.pageInput.value = res.page;
     this.updateNavButtons();
-    this.renderGrid(res.posts);
     const state = parseWidget(res.state_json);
+    this.renderGrid(res.posts, new Set(state?.failed || []));
     if (this.isModelSearch && this.modelId) {
       // civitai:搜索框显示模型名(重开工作流时从首帖 raw 还原)
       const first = (state.pages || []).flatMap((pg) => pg.posts)[0];
@@ -517,7 +519,7 @@ class BrowserPanel {
     this.nextBtn.disabled = !this.hasNext;
   }
 
-  renderGrid(posts) {
+  renderGrid(posts, failedSet) {
     if (!posts?.length) {
       this.renderEmpty("没有符合条件的帖子");
       return;
@@ -525,7 +527,7 @@ class BrowserPanel {
     this.grid.innerHTML = posts
       .map(
         (p, i) => `
-      <div class="thumb" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
+      <div class="thumb${failedSet?.has(p.id) ? " failed" : ""}" data-id="${p.id}" title="#${p.id} · ${RATING_LABEL[p.rating] || p.rating} · ★${p.score}">
         <span class="badge" style="background:${RATING_COLOR[p.rating] || "#666"}">${p.id}</span>
         <img src="${API_BASE}/image?url=${encodeURIComponent(p.preview_url)}" alt="#${p.id}" loading="${i < 12 ? "eager" : "lazy"}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
       </div>`
@@ -799,7 +801,8 @@ class BrowserPanel {
       ? `${Math.min(state.cursor, maxN)}/${maxN}`  // 越界游标(重开结果变少)显示钳制
       : "—";
     const nList = state?.outlist?.length || 0;
-    this.statusText.innerHTML = `${modeLabel} · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>0</b>`;
+    const nFailed = state?.failed?.length || 0;
+    this.statusText.innerHTML = `${modeLabel} · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>${nFailed}</b>`;
   }
 
   setError(msg) {

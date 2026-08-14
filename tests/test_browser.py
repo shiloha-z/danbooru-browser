@@ -93,7 +93,8 @@ class TestManualOutput:
             build_browser(http).next_output(session_to_json(state))
 
     def test_unknown_site_raises_state_error(self):
-        state = SessionState(conditions=SearchConditions(site="nope"), selection=1)
+        state = SessionState(conditions=SearchConditions(site="nope"),
+                             pages=[Page(1, [make_post(1)])], selection=1)
         with pytest.raises(StateError):
             build_browser(FakeHttp()).next_output(session_to_json(state))
 
@@ -501,6 +502,99 @@ class TestDownloadQuality:
         assert len(http.bytes_calls) == n  # 磁盘缓存命中,不重复下载
 
 
+class TestFailureStrategy:
+    """T9:自动/列表跳过失败帖并标红,手动报错,空状态明确(issue #11)。"""
+
+    def test_auto_skips_failed_and_marks(self):
+        http = FakeHttp()
+        posts = [make_post(1), make_post(2)]
+        http.bytes_responses[posts[1].file_url] = IMAGE_BYTES
+        http.bytes_responses[posts[1].sample_url] = IMAGE_BYTES  # 帖子 1 无字节 → 失败
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)],
+        )))
+        session.set_mode("auto")
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 2  # 跳过 1,继续
+        new_state = session_from_json(s)
+        assert 1 in new_state.failed  # 失败帖记录(面板标红)
+        assert new_state.cursor == 2  # 游标越过失败帖
+
+    def test_auto_skips_animated(self):
+        http = FakeHttp()
+        posts = [make_post(1, file_ext="webm", animated=True), make_post(2)]
+        http.bytes_responses[posts[1].file_url] = IMAGE_BYTES
+        http.bytes_responses[posts[1].sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)],
+        )))
+        session.set_mode("auto")
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 2  # 动画帖按失败跳过
+        assert 1 in session_from_json(s).failed
+
+    def test_auto_all_failed_reaches_end(self):
+        http = FakeHttp()  # 全无字节 → 全部失败
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = []  # 下一页为空
+        posts = [make_post(i) for i in (1, 2, 3)]
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)],
+        )))
+        session.set_mode("auto")
+        out, _ = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.EMPTY  # 跳过到最后 → 已到结果末尾
+
+    def test_list_skips_failed_and_marks(self):
+        http = FakeHttp()
+        posts = [make_post(1), make_post(2)]
+        http.bytes_responses[posts[1].file_url] = IMAGE_BYTES
+        http.bytes_responses[posts[1].sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)], outlist=[1, 2],
+        )))
+        session.set_mode("list")
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 2  # 跳过列表中的 1
+        new_state = session_from_json(s)
+        assert 1 in new_state.failed
+        assert new_state.cursor == 2
+
+    def test_list_all_dead_reports_after_cycle(self):
+        http = FakeHttp()  # 全无字节 → 列表全失败
+        posts = [make_post(1), make_post(2)]
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, posts)], outlist=[1, 2],
+        )))
+        session.set_mode("list")
+        out, _ = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.EMPTY  # 一圈全失败 → 明确报错
+
+    def test_empty_results_manual_message(self):
+        http = FakeHttp()
+        state = SessionState(conditions=SearchConditions(site="danbooru"),
+                             pages=[Page(number=1, posts=[])])
+        out, _ = build_browser(http).next_output(session_to_json(state))
+        assert out.kind is OutputKind.EMPTY
+        assert "结果为空" in (out.reason or "")
+
+    def test_failed_serializes_and_resets_on_search(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(9).raw)]
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"), pages=[Page(1, [make_post(1)])],
+            failed=[1],
+        )))
+        assert session_from_json(session.serialize()).failed == [1]  # 序列化往返
+        session.search(SearchConditions(site="danbooru"))
+        assert session.state.failed == []  # 新搜索重置失败标记
+
+
 class TestOutputFilter:
     """输出过滤:只剔除 Prompt 字符串中的标签,元数据忠实(issue #13)。"""
 
@@ -616,14 +710,16 @@ class TestListMode:
         assert out.kind is OutputKind.EMPTY
         assert "列表为空" in (out.reason or "")
 
-    def test_list_post_not_loaded_reports_clearly_without_advance(self):
+    def test_list_post_not_loaded_skipped_and_marked(self):
+        # T9:不在已加载结果的帖子按失败跳过并标红,继续列表下一张
         http = FakeHttp()
-        session = self.build_list_state(http, outlist=[999])  # 帖子不在已加载页
+        session = self.build_list_state(http, outlist=[999, 1])
         browser = build_browser(http)
         out, s = browser.next_output(session.serialize())
-        assert out.kind is OutputKind.EMPTY
-        assert "999" in (out.reason or "")
-        assert browser.restore(s).state.cursor == 0  # 失败不消耗:坏帖由用户移除(跳过语义在 T9)
+        assert out.kind is OutputKind.IMAGE and out.post.id == 1  # 跳过 999,输出 1
+        new_state = browser.restore(s).state
+        assert 999 in new_state.failed  # 标红
+        assert new_state.cursor == 2  # 游标越过失败项
 
     def test_list_mode_select_does_not_move_cursor(self):
         http = FakeHttp()

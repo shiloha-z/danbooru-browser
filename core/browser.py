@@ -59,6 +59,8 @@ class Browser:
         if state.mode == "list":
             output, new_state = self._list_output(state, prefer_original)
             return output, session_to_json(new_state)
+        if not state.loaded_posts():
+            return Output(OutputKind.EMPTY, reason="结果为空:当前筛选条件没有帖子"), state_json
         if state.selection is None:
             return Output(OutputKind.EMPTY, reason="未选中帖子:在面板中点击一张帖子后执行"), state_json
         post = self.require_loaded(state, state.selection, "(工作流可能被编辑);请在面板中重新浏览")
@@ -81,48 +83,59 @@ class Browser:
         )
 
     def _list_output(self, state: SessionState, prefer_original: bool = False) -> tuple[Output, SessionState]:
-        """列表模式:输出列表中下一张 → 成功输出后游标 +1,末尾回绕无限循环。
-
-        推进语义与自动模式一致:仅成功输出(IMAGE)才消耗;坏帖(动画/下载失败/
-        不在已加载结果)报错不推进,由用户移除(自动/列表的跳过语义在 T9)。"""
+        """列表模式:输出列表中下一张 → 游标 +1,末尾回绕无限循环;失败/动画帖跳过并标红(T9)。"""
         if not state.outlist:
             return Output(OutputKind.EMPTY, reason="列表为空:先在面板中加入帖子"), state
-        if state.cursor < 0 or state.cursor >= len(state.outlist):
-            state.cursor = 0  # 无限循环
-        post_id = state.outlist[state.cursor]
-        post = state.post(post_id)
-        if post is None:
-            return Output(
-                OutputKind.EMPTY, reason=f"列表中的帖子 #{post_id} 不在已加载结果中,请重新加入或移除"
-            ), state
-        output = self._post_output(state, post, prefer_original)
-        if output.kind is OutputKind.IMAGE:
+        cap = len(state.outlist) + 1  # 一整圈:全失败时给出明确报错而非无限循环
+        for _ in range(cap):
+            if state.cursor < 0 or state.cursor >= len(state.outlist):
+                state.cursor = 0  # 无限循环
+            post_id = state.outlist[state.cursor]
             state.cursor += 1
-        return output, state
+            post = state.post(post_id)
+            if post is None:
+                self._mark_failed(state, post_id)
+                continue  # 不在已加载结果:按失败跳过
+            output = self._post_output(state, post, prefer_original)
+            if output.kind is OutputKind.IMAGE:
+                return output, state
+            self._mark_failed(state, post_id)
+        return Output(OutputKind.EMPTY, reason="列表中连续多张失败,请移除失败项"), state
+
+    @staticmethod
+    def _mark_failed(state: SessionState, post_id: int) -> None:
+        if post_id not in state.failed:
+            state.failed.append(post_id)
 
     def _auto_output(self, state: SessionState, prefer_original: bool = False) -> tuple[Output, SessionState]:
-        """自动模式:输出游标帖 → 游标 +1;游标越过已加载末尾时自动拉下一页续上。"""
+        """自动模式:输出游标帖 → 游标 +1;失败/动画帖跳过并标红,继续下一张(T9)。"""
         if state.cursor < 0:  # 防御篡改的会话 JSON
             state.cursor = 0
         posts = state.loaded_posts()
         fetches = 0
-        while state.cursor >= len(posts):
-            fetches += 1
-            if fetches > 5:  # 防御性上限:站点忽略页码时避免疯狂拉取
-                return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
-            next_page = max((pg.number for pg in state.pages), default=0) + 1
-            site = self.site(state.conditions.site)
-            try:
-                result = site.search(state.conditions, page=next_page)
-            except TransportError as e:
-                return Output(OutputKind.FAILED, reason=f"自动模式翻页失败: {e}"), state
-            if not result.posts:
-                return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
-            state.pages.append(Page(number=next_page, posts=list(result.posts)))
-            posts = state.loaded_posts()
-        post = posts[state.cursor]
-        state.cursor += 1
-        return self._post_output(state, post, prefer_original), state
+        while True:
+            while state.cursor >= len(posts):
+                fetches += 1
+                if fetches > 5:  # 防御性上限:站点忽略页码时避免疯狂拉取
+                    return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
+                next_page = max((pg.number for pg in state.pages), default=0) + 1
+                site = self.site(state.conditions.site)
+                try:
+                    result = site.search(state.conditions, page=next_page)
+                except TransportError as e:
+                    return Output(OutputKind.FAILED, reason=f"自动模式翻页失败: {e}"), state
+                if not result.posts:
+                    return Output(OutputKind.EMPTY, reason="已到结果末尾"), state
+                state.pages.append(Page(number=next_page, posts=list(result.posts)))
+                posts = state.loaded_posts()
+            post = posts[state.cursor]
+            output = self._post_output(state, post, prefer_original)
+            if output.kind is OutputKind.IMAGE:
+                state.cursor += 1
+                return output, state
+            # 失败/动画:跳过并标红,继续下一张
+            self._mark_failed(state, post.id)
+            state.cursor += 1
 
     # ---------- 面板操作 ----------
 
@@ -194,6 +207,7 @@ class Session:
             page=1,
             mode=self.state.mode,
             out_filter=self.state.out_filter,
+            failed=[],  # 新搜索结果,旧失败标记作废
         )
         return result
 
@@ -220,6 +234,7 @@ class Session:
             page=page,
             mode=self.state.mode,
             out_filter=self.state.out_filter,
+            failed=self.state.failed,  # 失败标记跨翻页保留
         )
         return result
 

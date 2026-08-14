@@ -38,6 +38,7 @@ class SessionState:
     page: int = 1  # 当前页(面板翻页位置,随工作流序列化)
     mode: str = "manual"  # manual | auto | list(T5);驱动执行器的推进语义
     out_filter: tuple[str, ...] = ()  # 输出过滤:Prompt 派生时剔除的标签(元数据忠实)
+    failed: list[int] = field(default_factory=list)  # 自动/列表跳过的失败帖(面板标红)
 
     def loaded_posts(self) -> list[Post]:
         return [p for page in self.pages for p in page.posts]
@@ -58,6 +59,7 @@ class SessionState:
             "page": self.page,
             "mode": self.mode,
             "out_filter": list(self.out_filter),
+            "failed": self.failed,
         }
 
     @classmethod
@@ -71,6 +73,7 @@ class SessionState:
             page=int(d.get("page", 1)),
             mode=d.get("mode", "manual"),
             out_filter=tuple(d.get("out_filter", ())),
+            failed=list(d.get("failed", ())),
         )
 
 
