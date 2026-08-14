@@ -130,7 +130,6 @@ class BrowserPanel {
           <input type="text" id="dbb-search" placeholder="标签搜索(逗号分隔)…">
           <div class="dbb-ac" id="dbb-ac"></div>
         </div>
-        <input type="text" id="dbb-exclude" placeholder="排除标签(逗号分隔)…" style="width:110px" title="含任一排除标签的帖子不出现">
         <button class="primary" id="dbb-search-btn">搜索</button>
       </div>
       <div class="dbb-row">
@@ -142,7 +141,6 @@ class BrowserPanel {
         <button disabled title="后续版本">▶ 自动</button>
         <button id="dbb-reset-cursor" disabled>⟲ 重置游标</button>
         <button id="dbb-list-clear" title="清空输出列表">清空列表</button>
-        <input type="text" id="dbb-outfilter" style="flex:1" title="提示词输出时剔除的标签" placeholder="输出过滤(逗号分隔)">
       </div>
       <div class="dbb-row">
         <span style="color:#8a8a94;font-size:11px">评级</span>
@@ -217,17 +215,10 @@ class BrowserPanel {
       this.listAction("insert_to_list", sel, Number.isInteger(pos) && pos >= 1 ? pos - 1 : 0);
     };
     this.listClearBtn.onclick = () => this.listAction("clear_list");
-    this.outFilterInput = el.querySelector("#dbb-outfilter");
+    this.excludeTags = "";  // 排除标签在 ⚙ 设置弹层编辑,面板状态供搜索条件使用
     this.outFilterSeq = 0;
-    let outFilterTimer = null;
-    this.outFilterInput.addEventListener("input", () => {
-      clearTimeout(outFilterTimer);
-      const mySeq = ++this.outFilterSeq;
-      outFilterTimer = setTimeout(() => {
-        const tags = this.outFilterInput.value.trim().split(/[,\s]+/).filter(Boolean);
-        this.listAction("set_out_filter", undefined, undefined, tags, mySeq);
-      }, 300);
-    });
+    this.hasExcludeTags = true;  // 能力旗标:applySiteCapabilities 更新
+    this.promptIsEmbedded = false;
     el.querySelectorAll(".dbb-chip").forEach((c) => {
       c.onclick = () => {
         if (this.multiRating === false) {
@@ -354,7 +345,7 @@ class BrowserPanel {
       };
     }
     const tags = this.el.querySelector("#dbb-search").value.trim().split(/[,\s]+/).filter(Boolean);
-    const excludeTags = this.el.querySelector("#dbb-exclude").value.trim().split(/[,\s]+/).filter(Boolean);
+    const excludeTags = (this.excludeTags || "").trim().split(/[,\s]+/).filter(Boolean);
     return {
       site: this.el.querySelector("#dbb-site").value,
       tags,
@@ -370,10 +361,8 @@ class BrowserPanel {
     const siteSel = this.el.querySelector("#dbb-site");
     if (c.site && siteSel.value !== c.site) siteSel.value = c.site;  // 还原站点选择
     this.modelId = c.model_id ?? null;  // civitai:还原模型
+    this.excludeTags = (c.exclude_tags || []).join(", ");
     this.el.querySelector("#dbb-search").value = (c.tags || []).join(", ");
-    this.el.querySelector("#dbb-exclude").value = (c.exclude_tags || []).join(", ");
-    // out_filter 在会话顶层,不在 conditions 里
-    this.el.querySelector("#dbb-outfilter").value = (state?.out_filter || []).join(", ");
     this.el.querySelectorAll(".dbb-chip").forEach((chip) => {
       chip.classList.toggle("on", (c.ratings || ALL_RATINGS).includes(chip.dataset.r));
     });
@@ -681,8 +670,8 @@ class BrowserPanel {
         const on = this.el.querySelectorAll(".dbb-chip.on");
         on.forEach((x, i) => { if (i > 0) x.classList.remove("on"); });  // 只保留第一个
       }
-      this.el.querySelector("#dbb-exclude").disabled = data.has_exclude_tags === false;
-      this.el.querySelector("#dbb-outfilter").disabled = data.prompt_kind === "embedded";
+      this.hasExcludeTags = data.has_exclude_tags !== false;
+      this.promptIsEmbedded = data.prompt_kind === "embedded";
       const sortOpts = data.sort_options || ["new", "score", "random"];
       const sortSel = this.el.querySelector("#dbb-sort");
       [...sortSel.options].forEach((o) => {
@@ -714,12 +703,39 @@ class BrowserPanel {
         </div>
         <button class="dbb-cred-save" style="background:#4f8cff;border:none;color:#fff;border-radius:5px;padding:5px">保存</button>
         <div class="dbb-cred-status" style="color:#8a8a94;font-size:11px">留空 = 保持不变;清除需编辑 credentials.json</div>
+        <hr style="border:none;border-top:1px solid #3a3a42;margin:4px 0">
+        <div><b>搜索与输出</b></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="color:#8a8a94;font-size:11px;width:52px">排除标签</span>
+          <input id="dbb-set-exclude" placeholder="逗号分隔,含任一排除标签的帖子不出现" style="flex:1">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="color:#8a8a94;font-size:11px;width:52px">输出过滤</span>
+          <input id="dbb-set-outfilter" placeholder="逗号分隔,提示词输出时剔除的标签" style="flex:1">
+        </div>
       </div>
     `;
     const inputs = {
       danbooru: [overlay.querySelector("#dbb-cred-dan-login"), overlay.querySelector("#dbb-cred-dan-key")],
       gelbooru: [overlay.querySelector("#dbb-cred-gel-uid"), overlay.querySelector("#dbb-cred-gel-key")],
     };
+    // 搜索与输出:排除标签为面板状态(参与下次搜索条件);输出过滤实时同步会话
+    const excludeInput = overlay.querySelector("#dbb-set-exclude");
+    const outfilterInput = overlay.querySelector("#dbb-set-outfilter");
+    excludeInput.value = this.excludeTags || "";
+    excludeInput.disabled = !this.hasExcludeTags;  // civitai 无标签体系
+    excludeInput.addEventListener("input", () => { this.excludeTags = excludeInput.value; });
+    outfilterInput.value = (parseWidget(this.widget?.value)?.out_filter || []).join(", ");
+    outfilterInput.disabled = this.promptIsEmbedded;  // 内嵌提示词不适用
+    let ofTimer = null;
+    outfilterInput.addEventListener("input", () => {
+      clearTimeout(ofTimer);
+      const mySeq = ++this.outFilterSeq;
+      ofTimer = setTimeout(() => {
+        const tags = outfilterInput.value.trim().split(/[,\s]+/).filter(Boolean);
+        this.listAction("set_out_filter", undefined, undefined, tags, mySeq);
+      }, 300);
+    });
     const status = overlay.querySelector(".dbb-cred-status");
     const refresh = async () => {
       for (const [site, pair] of Object.entries(inputs)) {
@@ -733,6 +749,7 @@ class BrowserPanel {
       }
     };
     const close = () => {
+      clearTimeout(ofTimer);  // 关闭即取消未触发的防抖,重开不显示陈旧值
       overlay.remove();
       document.removeEventListener("keydown", onKey);
     };
