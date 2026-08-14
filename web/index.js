@@ -97,9 +97,11 @@ class BrowserPanel {
     this.node = node;
     this.widget = node.widgets?.find((w) => w.name === "session");
     this.proxyWidget = node.widgets?.find((w) => w.name === "proxy");
+    this._initialized = false;
     injectCss();
     this.buildDom();
-    this.init();
+    // widget 值在 onConfigure(工作流恢复)后才就绪;新节点无 configure 触发,setTimeout 兜底
+    setTimeout(() => this.init(), 0);
   }
 
   buildDom() {
@@ -182,6 +184,8 @@ class BrowserPanel {
   }
 
   init() {
+    if (this._initialized) return;  // onConfigure 与 setTimeout 可能都触发,只初始化一次
+    this._initialized = true;
     // 重开工作流:会话在 widget 里,控件还原筛选条件并重拉当前页(ADR-0002)
     const state = parseWidget(this.widget?.value);
     if (state?.conditions) {
@@ -469,6 +473,13 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       onNodeCreated?.apply(this, arguments);
       this._browserPanel = new BrowserPanel(this);
+    };
+    // 工作流恢复:configure 在 onNodeCreated 之后才把 widget 值填上,
+    // 面板初始化必须延到这里才能读到会话(ADR-0002 恢复)
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function () {
+      onConfigure?.apply(this, arguments);
+      this._browserPanel?.init();
     };
   },
 });
