@@ -28,7 +28,9 @@ def state_with_selection(http: FakeHttp, selection: int | None = 2) -> str:
         pages=[Page(number=1, posts=posts)],
         selection=selection,
     )
-    http.bytes_responses[posts[1].file_url] = IMAGE_BYTES
+    for p in posts:  # 默认下载 sample,原图开关下载 file_url,两个都备
+        http.bytes_responses[p.file_url] = IMAGE_BYTES
+        http.bytes_responses[p.sample_url] = IMAGE_BYTES
     return session_to_json(state)
 
 
@@ -190,6 +192,7 @@ class TestAutoMode:
         posts = [make_post(i) for i in post_ids]
         for p in posts:
             http.bytes_responses[p.file_url] = IMAGE_BYTES
+            http.bytes_responses[p.sample_url] = IMAGE_BYTES
         session = build_browser(http).restore(session_to_json(SessionState(
             conditions=SearchConditions(site="danbooru"),
             pages=[Page(number=1, posts=posts)],
@@ -228,6 +231,7 @@ class TestAutoMode:
         ]
         for p in (make_post(4), make_post(5)):
             http.bytes_responses[p.file_url] = IMAGE_BYTES
+            http.bytes_responses[p.sample_url] = IMAGE_BYTES
         browser = build_browser(http)
         state = self.build_auto_state(http, selection=3)  # 最后一帖,游标=2
         out, s = browser.next_output(state)
@@ -425,6 +429,78 @@ class TestSessionRestore:
         assert "secret" not in serialized
 
 
+class TestDownloadQuality:
+    """下载质量:默认大图预览,原图开关下载原图(T8)。"""
+
+    def build_state(self, http):
+        posts = [make_post(1)]
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=posts)], selection=1,
+        )
+        return session_to_json(state), posts[0]
+
+    def test_default_downloads_sample(self):
+        http = FakeHttp()
+        state, post = self.build_state(http)
+        http.bytes_responses[post.sample_url] = IMAGE_BYTES  # 只有 sample
+        output, _ = build_browser(http).next_output(state)
+        assert output.kind is OutputKind.IMAGE
+        assert http.bytes_calls == [post.sample_url]  # 默认下载大图预览
+        assert output.metadata["file_url"] == post.file_url  # 元数据仍是原图地址
+
+    def test_original_switch_downloads_original(self):
+        http = FakeHttp()
+        state, post = self.build_state(http)
+        http.bytes_responses[post.file_url] = IMAGE_BYTES  # 只有原图
+        output, _ = build_browser(http).next_output(state, prefer_original=True)
+        assert output.kind is OutputKind.IMAGE
+        assert http.bytes_calls == [post.file_url]
+
+    def test_sample_missing_falls_back_to_original(self):
+        from dataclasses import replace
+        http = FakeHttp()
+        state, post = self.build_state(http)
+        no_sample = replace(post, sample_url="")  # 站点没给 sample 时兜底原图
+        state = session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=[no_sample])], selection=1,
+        ))
+        http.bytes_responses[post.file_url] = IMAGE_BYTES
+        output, _ = build_browser(http).next_output(state)
+        assert output.kind is OutputKind.IMAGE  # sample 缺失 → 原图兜底
+        assert http.bytes_calls == [post.file_url]
+
+    def test_cache_keyed_by_download_url(self):
+        # 同一帖子 sample 与原图是不同缓存项
+        http = FakeHttp()
+        state, post = self.build_state(http)
+        http.bytes_responses[post.file_url] = IMAGE_BYTES
+        http.bytes_responses[post.sample_url] = IMAGE_BYTES
+        browser = build_browser(http, cache=MemoryCache())
+        out1, _ = browser.next_output(state)
+        assert out1.kind is OutputKind.IMAGE
+        n = len(http.bytes_calls)
+        out2, _ = browser.next_output(state, prefer_original=True)  # 原图 → 不同缓存项
+        assert out2.kind is OutputKind.IMAGE
+        assert len(http.bytes_calls) == n + 1  # 原图单独下载一次
+        out3, _ = browser.next_output(state, prefer_original=True)
+        assert len(http.bytes_calls) == n + 1  # 原图缓存命中
+
+    def test_disk_cache_serves_repeat_execution(self, tmp_path):
+        from core.disk_cache import DiskImageCache
+        http = FakeHttp()
+        state, post = self.build_state(http)
+        http.bytes_responses[post.sample_url] = IMAGE_BYTES
+        browser = build_browser(http, cache=DiskImageCache(str(tmp_path)))
+        out1, _ = browser.next_output(state)
+        assert out1.kind is OutputKind.IMAGE
+        n = len(http.bytes_calls)
+        out2, _ = browser.next_output(state)
+        assert out2.kind is OutputKind.IMAGE
+        assert len(http.bytes_calls) == n  # 磁盘缓存命中,不重复下载
+
+
 class TestOutputFilter:
     """输出过滤:只剔除 Prompt 字符串中的标签,元数据忠实(issue #13)。"""
 
@@ -446,6 +522,7 @@ class TestOutputFilter:
             pages=[Page(1, posts)], selection=2, out_filter=("nude",),
         )
         http.bytes_responses[posts[1].file_url] = IMAGE_BYTES
+        http.bytes_responses[posts[1].sample_url] = IMAGE_BYTES
         output, _ = build_browser(http).next_output(session_to_json(state))
         assert output.prompt == "2girls, hug"  # Prompt 已过滤
         assert output.metadata["tags"] == ["2girls", "hug", "nude"]  # 元数据忠实
@@ -482,6 +559,7 @@ class TestListMode:
         posts = [make_post(i) for i in post_ids]
         for p in posts:
             http.bytes_responses[p.file_url] = IMAGE_BYTES
+            http.bytes_responses[p.sample_url] = IMAGE_BYTES
         state = SessionState(
             conditions=SearchConditions(site="danbooru"),
             pages=[Page(number=1, posts=posts)],

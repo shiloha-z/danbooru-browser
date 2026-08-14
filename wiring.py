@@ -1,12 +1,11 @@
-"""Wiring: the shared Browser instance for routes and the executor node.
-
-The image cache stays None for T1 (bounded disk cache lands with its own
-ticket); every execution re-downloads the selected image.
-"""
+"""Wiring: the shared Browser instance for routes and the executor node."""
 
 from __future__ import annotations
 
+import os
+
 from core.browser import Browser
+from core.disk_cache import DiskImageCache
 from sites import build_registry
 from sites.http import RequestsHttpAdapter
 
@@ -24,5 +23,6 @@ def get_http() -> RequestsHttpAdapter:
 def get_browser() -> Browser:
     global _browser
     if _browser is None:
-        _browser = Browser(build_registry(get_http()))
+        cache_dir = os.path.join(os.path.dirname(__file__), "cache")
+        _browser = Browser(build_registry(get_http()), image_cache=DiskImageCache(cache_dir))
     return _browser

@@ -79,5 +79,5 @@ class GelbooruSite:
         posts = tuple(parse_post(d, "gelbooru") for d in (data.get("post") or []) if isinstance(d, dict))
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
-    def fetch_image(self, post: Post) -> bytes:
-        return self._http.get_bytes(post.file_url)
+    def fetch_image(self, post: Post, url: str | None = None) -> bytes:
+        return self._http.get_bytes(url or post.file_url)

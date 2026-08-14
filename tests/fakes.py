@@ -90,6 +90,8 @@ def make_post(
         id=post_id,
         site="danbooru",
         file_url=raw["file_url"],
+        sample_url=raw["large_file_url"],
+        preview_url=raw["preview_file_url"],
         tags=tags,
         rating=rating,
         score=score,

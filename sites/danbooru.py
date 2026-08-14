@@ -79,8 +79,8 @@ class DanbooruSite:
         posts = tuple(parse_post(d, "danbooru") for d in data)
         return SearchResult(posts=posts, page=page, has_next=len(posts) >= conditions.per_page)
 
-    def fetch_image(self, post: Post) -> bytes:
-        return self._http.get_bytes(post.file_url)
+    def fetch_image(self, post: Post, url: str | None = None) -> bytes:
+        return self._http.get_bytes(url or post.file_url)
 
     def autocomplete_tags(self, query: str, limit: int = 10) -> list[str]:
         """标签补全:面板搜索框输入时的候选列表(站点能力,gelbooru/civitai 后续)。"""

@@ -37,6 +37,8 @@ class DanbooruBrowserNode:
                 "session": ("STRING", {"default": ""}),
                 # HTTP 代理地址(host:port 或完整 URL);空 = 系统代理。全局生效:搜索/图片/补全。
                 "proxy": ("STRING", {"default": "127.0.0.1:7897"}),
+                # 下载质量:关 = 大图预览(sample,快);开 = 原图(清晰,慢)
+                "original": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -45,9 +47,9 @@ class DanbooruBrowserNode:
     FUNCTION = "run"
     CATEGORY = "danbooru_browser"
 
-    def run(self, session: str = "", proxy: str = ""):
+    def run(self, session: str = "", proxy: str = "", original: bool = False):
         get_http().set_proxy(proxy)  # 代理是全局 adapter 设置,执行时同步(与面板搜索一致)
-        output, new_state = get_browser().next_output(session or "")
+        output, new_state = get_browser().next_output(session or "", prefer_original=original)
         if output.kind is OutputKind.IMAGE:
             return {
                 # ui 字典是 executed 消息的载体:没有它 ComfyUI 不发 onExecuted,

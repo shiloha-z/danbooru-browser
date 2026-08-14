@@ -48,39 +48,39 @@ class Browser:
 
     # ---------- 执行器入口 ----------
 
-    def next_output(self, state_json: str) -> tuple[Output, str]:
+    def next_output(self, state_json: str, prefer_original: bool = False) -> tuple[Output, str]:
         """解析会话 → 按模式推进 → 输出。手动模式不改状态;自动模式返回推进后的状态。"""
         state = session_from_json(state_json)
         if state.conditions is None:
             return Output(OutputKind.EMPTY, reason="未浏览:先在面板中浏览并选中一张帖子"), state_json
         if state.mode == "auto":
-            output, new_state = self._auto_output(state)
+            output, new_state = self._auto_output(state, prefer_original)
             return output, session_to_json(new_state)
         if state.mode == "list":
-            output, new_state = self._list_output(state)
+            output, new_state = self._list_output(state, prefer_original)
             return output, session_to_json(new_state)
         if state.selection is None:
             return Output(OutputKind.EMPTY, reason="未选中帖子:在面板中点击一张帖子后执行"), state_json
         post = self.require_loaded(state, state.selection, "(工作流可能被编辑);请在面板中重新浏览")
-        return self._post_output(state, post), state_json
+        return self._post_output(state, post, prefer_original), state_json
 
-    def _post_output(self, state: SessionState, post: Post) -> Output:
+    def _post_output(self, state: SessionState, post: Post, prefer_original: bool = False) -> Output:
         """取图 → 派生提示词 → 组装输出(手动与自动共用尾部)。"""
         site = self.site(state.conditions.site)
         if post.animated:
             return Output(OutputKind.ANIMATED, post=post,
                           reason="帖子是动画(webm/gif),暂不支持输出")
         try:
-            image = self._fetch_image(site, post)
+            image = self._fetch_image(site, post, prefer_original)
         except TransportError as e:
-            return Output(OutputKind.FAILED, post=post,
-                          reason=f"下载失败: {post.file_url} ({e})")
+            url = post.file_url if prefer_original else (post.sample_url or post.file_url)
+            return Output(OutputKind.FAILED, post=post, reason=f"下载失败: {url} ({e})")
         return Output(
             OutputKind.IMAGE, post=post, image=image,
             prompt=self.derive_prompt(post, state.out_filter), metadata=build_metadata(post),
         )
 
-    def _list_output(self, state: SessionState) -> tuple[Output, SessionState]:
+    def _list_output(self, state: SessionState, prefer_original: bool = False) -> tuple[Output, SessionState]:
         """列表模式:输出列表中下一张 → 成功输出后游标 +1,末尾回绕无限循环。
 
         推进语义与自动模式一致:仅成功输出(IMAGE)才消耗;坏帖(动画/下载失败/
@@ -95,12 +95,12 @@ class Browser:
             return Output(
                 OutputKind.EMPTY, reason=f"列表中的帖子 #{post_id} 不在已加载结果中,请重新加入或移除"
             ), state
-        output = self._post_output(state, post)
+        output = self._post_output(state, post, prefer_original)
         if output.kind is OutputKind.IMAGE:
             state.cursor += 1
         return output, state
 
-    def _auto_output(self, state: SessionState) -> tuple[Output, SessionState]:
+    def _auto_output(self, state: SessionState, prefer_original: bool = False) -> tuple[Output, SessionState]:
         """自动模式:输出游标帖 → 游标 +1;游标越过已加载末尾时自动拉下一页续上。"""
         if state.cursor < 0:  # 防御篡改的会话 JSON
             state.cursor = 0
@@ -122,7 +122,7 @@ class Browser:
             posts = state.loaded_posts()
         post = posts[state.cursor]
         state.cursor += 1
-        return self._post_output(state, post), state
+        return self._post_output(state, post, prefer_original), state
 
     # ---------- 面板操作 ----------
 
@@ -150,15 +150,16 @@ class Browser:
             raise StateError(f"帖子 #{post_id} 不在已加载结果中{hint}")
         return post
 
-    def _fetch_image(self, site: Site, post: Post) -> bytes:
-        key = f"{post.site}:{post.id}"
+    def _fetch_image(self, site: Site, post: Post, prefer_original: bool = False) -> bytes:
+        """默认下载大图预览(sample);原图开关下载原图。缓存按下载 URL 键控(T8)。"""
+        url = post.file_url if prefer_original else (post.sample_url or post.file_url)
         if self._cache is not None:
-            cached = self._cache.get(key)
+            cached = self._cache.get(url)
             if cached is not None:
                 return cached
-        data = site.fetch_image(post)
+        data = site.fetch_image(post, url)
         if self._cache is not None:
-            self._cache.put(key, data)
+            self._cache.put(url, data)
         return data
 
 
