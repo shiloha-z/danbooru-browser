@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sites.http import image_content_type, is_allowed_image_url, proxy_config
+from sites.http import image_content_type, is_allowed_image_url, proxy_config, referer_for
 
 
 class TestIsAllowedImageUrl:
@@ -38,6 +38,16 @@ class TestImageContentType:
     def test_unknown_extension_falls_back(self):
         assert image_content_type("https://cdn.donmai.us/x/1.webm") == "application/octet-stream"
         assert image_content_type("https://cdn.donmai.us/x/noext") == "application/octet-stream"
+
+
+class TestRefererFor:
+    def test_gelbooru_hosts_get_referer(self):
+        assert referer_for("https://img4.gelbooru.com/images/x/y.png") == "https://gelbooru.com/"
+        assert referer_for("https://gelbooru.com/index.php") == "https://gelbooru.com/"
+
+    def test_other_hosts_no_referer(self):
+        assert referer_for("https://cdn.donmai.us/x.jpg") is None
+        assert referer_for("https://evil.example.com/x.jpg") is None
 
 
 class TestProxyConfig:

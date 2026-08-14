@@ -42,6 +42,18 @@ def image_content_type(url: str) -> str:
     return _IMAGE_CONTENT_TYPES.get(ext, "application/octet-stream")
 
 
+def referer_for(url: str) -> str | None:
+    """热链保护 CDN 需要的 Referer;其余站点返回 None。
+
+    gelbooru 的 CDN 对无 Referer 请求返回帖子 HTML 页(HTTP 200),
+    带站点 Referer 才返回真实图片(2026-08 实测)。
+    """
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host == "gelbooru.com" or host.endswith(".gelbooru.com"):
+        return "https://gelbooru.com/"
+    return None
+
+
 def proxy_config(proxy: str) -> dict[str, str] | None:
     """代理字符串 → requests proxies 配置;空 = None(系统代理)。非法值抛 ValueError。"""
     proxy = proxy.strip() if proxy else ""
@@ -97,12 +109,21 @@ class RequestsHttpAdapter:
         self._throttle()  # API 调用限流;图片走 CDN,不限
         return self._check(self._session.get(url, params=params, timeout=self._timeout), url).json()
 
+    def _headers_for(self, url: str) -> dict[str, str]:
+        referer = referer_for(url)
+        return {"Referer": referer} if referer else {}
+
     def get_bytes(self, url: str) -> bytes:
-        return self._check(self._session.get(url, timeout=self._timeout * 2), url).content
+        return self._check(
+            self._session.get(url, timeout=self._timeout * 2, headers=self._headers_for(url)), url
+        ).content
 
     def iter_bytes(self, url: str, chunk_size: int = 65536) -> Iterator[bytes]:
         """流式读取:面板图片代理逐块转发用;响应校验在首个 chunk 前触发。"""
-        resp = self._check(self._session.get(url, timeout=self._timeout * 2, stream=True), url)
+        resp = self._check(
+            self._session.get(url, timeout=self._timeout * 2, stream=True, headers=self._headers_for(url)),
+            url,
+        )
         try:
             yield from resp.iter_content(chunk_size=chunk_size)
         finally:

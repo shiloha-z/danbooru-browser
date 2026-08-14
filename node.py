@@ -11,7 +11,7 @@ from io import BytesIO
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from wiring import get_browser, get_http
 from core.model import OutputKind
@@ -19,7 +19,10 @@ from core.model import OutputKind
 
 def image_bytes_to_tensor(data: bytes) -> torch.Tensor:
     """JPEG/PNG bytes → ComfyUI IMAGE tensor [1, H, W, 3] float32 0..1."""
-    img = Image.open(BytesIO(data)).convert("RGB")
+    try:
+        img = Image.open(BytesIO(data)).convert("RGB")
+    except UnidentifiedImageError as e:
+        raise RuntimeError("下载的内容不是有效图片(站点可能拦截了图片请求)") from e
     arr = np.array(img).astype(np.float32) / 255.0
     return torch.from_numpy(arr)[None, ...]
 
