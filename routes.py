@@ -1,8 +1,8 @@
 """Prompt-server routes for the browse panel (ADR-0001).
 
-Every route is three steps: restore the session from the workflow widget JSON
-→ perform the action → return the new serialized session (ADR-0003). Blocking
-site calls run in a thread so the aiohttp loop stays responsive.
+会话类路由三步:恢复会话 → 动作 → 返回新序列化会话(ADR-0003);无状态代理路由
+(图片 / 标签补全)直接转发站点请求。阻塞的站点调用跑在线程里,保持 aiohttp
+循环响应。
 """
 
 from __future__ import annotations
@@ -43,6 +43,21 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter) -> N
         except TransportError as e:
             return web.Response(status=502, text=str(e))
         return web.Response(body=data, content_type="application/octet-stream")
+
+    @server.routes.get("/danbooru_browser/tags")
+    async def tags(request: web.Request) -> web.Response:
+        """标签补全候选:搜索框输入时的下拉建议(能力表驱动,ADR-0003)。"""
+        query = request.query.get("q", "").strip()
+        if not query:
+            return web.json_response({"tags": []})
+        site = browser.site(request.query.get("site", "danbooru"))
+        if not site.capabilities.has_tag_autocomplete:
+            return web.json_response({"error": "该站点不支持标签补全"}, status=501)
+        try:
+            names = await asyncio.to_thread(site.autocomplete_tags, query)
+        except TransportError as e:
+            return web.json_response({"error": str(e)}, status=502)
+        return web.json_response({"tags": names})
 
     @server.routes.post("/danbooru_browser/search")
     async def search(request: web.Request) -> web.Response:

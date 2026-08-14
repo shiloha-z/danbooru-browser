@@ -19,6 +19,7 @@ class SiteCapabilities:
     has_tag_search: bool = True
     has_exclude_tags: bool = True
     has_ratings: bool = True
+    has_tag_autocomplete: bool = False  # 面板搜索框标签补全(danbooru 有 /autocomplete.json)
     ratings: tuple[str, ...] = ("g", "s", "q", "e")
     sort_options: tuple[str, ...] = ("new", "score", "random")
     prompt_kind: str = "tags"  # "tags"(booru 标签拼接) | "embedded"(civitai 内嵌生成参数)

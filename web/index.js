@@ -26,6 +26,14 @@ const PANEL_CSS = `
 .dbb-panel button:disabled,.dbb-lightbox button:disabled{opacity:.45;cursor:not-allowed}
 .dbb-chip{background:transparent;border:1px solid #3a3a42;border-radius:10px;padding:1px 8px;font-size:11px;cursor:pointer;opacity:.45}
 .dbb-chip.on{opacity:1;border-color:currentColor}
+.dbb-searchwrap{position:relative;flex:1;min-width:0}
+.dbb-searchwrap input{width:100%;box-sizing:border-box}
+.dbb-ac{position:absolute;top:100%;left:0;right:0;background:#141419;border:1px solid #3a3a42;border-radius:5px;z-index:50;max-height:160px;overflow-y:auto;display:none}
+.dbb-ac div{padding:3px 8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-ac div:hover{background:#33333c}
+.dbb-lb-tags{display:flex;flex-wrap:wrap;gap:4px;max-width:92vw;justify-content:center}
+.dbb-lb-tags span{background:#33333c;border:1px solid #3a3a42;border-radius:10px;padding:1px 8px;font-size:11px;cursor:pointer;color:#d8d8de}
+.dbb-lb-tags span:hover{background:#3e3e49}
 .dbb-row{display:flex;gap:6px;align-items:center}
 .dbb-mode{display:flex;gap:2px;background:#141419;border:1px solid #3a3a42;border-radius:5px;padding:2px}
 .dbb-mode button{border:none;background:none;padding:2px 9px;border-radius:4px}
@@ -94,7 +102,10 @@ class BrowserPanel {
           <option disabled>gelbooru (后续版本)</option>
           <option disabled>civitai (后续版本)</option>
         </select>
-        <input type="text" id="dbb-search" placeholder="标签搜索(空格分隔)…" style="flex:1">
+        <div class="dbb-searchwrap">
+          <input type="text" id="dbb-search" placeholder="标签搜索(空格分隔)…">
+          <div class="dbb-ac" id="dbb-ac"></div>
+        </div>
         <input type="text" id="dbb-exclude" disabled title="T2 后续票" placeholder="排除标签(后续版本)…">
         <button class="primary" id="dbb-search-btn">搜索</button>
       </div>
@@ -135,6 +146,7 @@ class BrowserPanel {
         c.classList.toggle("on");
       };
     });
+    this.initAutocomplete(el);
     this.grid = el.querySelector("#dbb-grid");
     this.footer = el.querySelector("#dbb-footer");
     this.statusText = el.querySelector("#dbb-status-text");
@@ -151,6 +163,48 @@ class BrowserPanel {
     } else {
       this.renderEmpty("未浏览 — 点击「搜索」加载 danbooru 最新帖子");
     }
+  }
+
+  initAutocomplete(el) {
+    const input = el.querySelector("#dbb-search");
+    const box = el.querySelector("#dbb-ac");
+    let timer = null;
+    let seq = 0;  // 丢弃过期响应:慢请求返回时输入框已输入新内容
+    const hide = () => { box.style.display = "none"; };
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (!q) return hide();
+      const mySeq = ++seq;
+      timer = setTimeout(async () => {
+        try {
+          const resp = await fetch(`${API_BASE}/tags?q=${encodeURIComponent(q)}`);
+          const data = await resp.json();
+          if (mySeq !== seq) return;
+          if (data.error || !data.tags?.length) return hide();
+          box.innerHTML = "";
+          data.tags.slice(0, 8).forEach((t) => {
+            const div = document.createElement("div");
+            div.textContent = t;
+            div.onmousedown = () => {
+              this.addTagToSearch(t);
+              hide();
+            };
+            box.appendChild(div);
+          });
+          box.style.display = "block";
+        } catch {
+          if (mySeq === seq) hide();
+        }
+      }, 200);
+    });
+    input.addEventListener("blur", () => setTimeout(hide, 150));
+  }
+
+  addTagToSearch(tag) {
+    const input = this.el.querySelector("#dbb-search");
+    const cur = input.value.trim();
+    input.value = cur ? `${cur} ${tag}` : tag;
   }
 
   readConditions() {
@@ -243,10 +297,21 @@ class BrowserPanel {
       </div>
       <div class="dbb-lb-msg"></div>
       <img alt="大图预览">
+      <div class="dbb-lb-tags"></div>
     `;
     const img = overlay.querySelector("img");
     const msg = overlay.querySelector(".dbb-lb-msg");
     const toggle = overlay.querySelector(".dbb-lb-toggle");
+    // 点击 tag 直接加入搜索框(最多展示 40 个,避免超长标签列表)
+    overlay.querySelector(".dbb-lb-tags").append(
+      ...post.tags.slice(0, 40).map((t) => {
+        const chip = document.createElement("span");
+        chip.textContent = t;
+        chip.title = `点击加入搜索框:${t}`;
+        chip.onclick = () => this.addTagToSearch(t);
+        return chip;
+      }),
+    );
     let showingOriginal = false;
     const onKey = (e) => {
       if (e.key === "Escape") close();

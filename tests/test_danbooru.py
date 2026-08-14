@@ -115,7 +115,10 @@ class TestSearch:
         http.json_responses["https://danbooru.donmai.us/posts.json"] = []
         site = DanbooruSite(http)
         site.search(SearchConditions(site="danbooru", sort="random", per_page=20), 1)
-        assert http.json_calls[-1][1]["tags"] == "order:random"
+        # 随机必须带 seed:裸 order:random 在 danbooru API 上 500(2026-08 实测)
+        random_tags = http.json_calls[-1][1]["tags"]
+        assert random_tags.startswith("order:random:")
+        assert random_tags[len("order:random:"):].isdigit()
         site.search(SearchConditions(site="danbooru", sort="new", per_page=20), 1)
         # 最新显式映射 order:id_desc(danbooru 的 order:id 是升序旧帖优先)
         assert http.json_calls[-1][1]["tags"] == "order:id_desc"
@@ -141,6 +144,17 @@ class TestSearch:
         site = DanbooruSite(http)
         assert site.fetch_image(make_post(1)) == b"\xff\xd8"
         assert http.bytes_calls == ["https://cdn.example/1.jpg"]
+
+    def test_autocomplete_tags_maps_values(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/autocomplete.json"] = [
+            {"value": "1girl"}, {"type": "category", "value": ""}, {"value": "1girl_solo"},
+        ]
+        site = DanbooruSite(http)
+        assert site.autocomplete_tags("1girl") == ["1girl", "1girl_solo"]
+        url, params = http.json_calls[-1]
+        assert params["search[query]"] == "1girl"
+        assert params["search[type]"] == "tag_query"
 
     def test_fetch_image_transport_error_propagates(self):
         site = DanbooruSite(FakeHttp())

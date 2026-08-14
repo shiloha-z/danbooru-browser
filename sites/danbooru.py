@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 from core.model import Post, SearchConditions, SearchResult
@@ -29,7 +30,7 @@ def parse_post(d: dict[str, Any], site: str) -> Post:
 class DanbooruSite:
     BASE_URL = "https://danbooru.donmai.us"
 
-    capabilities = SiteCapabilities(site_name="danbooru")
+    capabilities = SiteCapabilities(site_name="danbooru", has_tag_autocomplete=True)
 
     def __init__(self, http: HttpAdapter):
         self._http = http
@@ -45,7 +46,10 @@ class DanbooruSite:
         if conditions.sort == "score":
             tags.append("order:score")
         elif conditions.sort == "random":
-            tags.append("order:random")
+            # danbooru API 裸 order:random 目前 500(2026-08 实测);带 seed 的
+            # order:random:NN 正常返回(API 修复随机前退化为默认序)。每次搜索
+            # 生成新 seed,保证各次搜索结果不同。
+            tags.append(f"order:random:{secrets.randbelow(2**31)}")
         elif conditions.sort == "new":
             # 显式映射最新:danbooru 默认排序可能随配置变;注意 order:id 是升序(旧帖优先),
             # 新帖优先必须用 order:id_desc(2026-08 实测)
@@ -60,3 +64,11 @@ class DanbooruSite:
 
     def fetch_image(self, post: Post) -> bytes:
         return self._http.get_bytes(post.file_url)
+
+    def autocomplete_tags(self, query: str, limit: int = 10) -> list[str]:
+        """标签补全:面板搜索框输入时的候选列表(站点能力,gelbooru/civitai 后续)。"""
+        data = self._http.get_json(
+            f"{self.BASE_URL}/autocomplete.json",
+            params={"search[query]": query, "search[type]": "tag_query", "limit": limit},
+        )
+        return [d["value"] for d in data if isinstance(d, dict) and d.get("value")]
