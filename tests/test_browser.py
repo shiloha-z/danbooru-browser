@@ -312,6 +312,119 @@ class TestAutoMode:
         assert out.kind is OutputKind.EMPTY  # 拉取上限后停止,不无限循环
 
 
+class TestSessionRestore:
+    """T7 会话完整恢复:重开工作流回到保存时的浏览现场(issue #10)。"""
+
+    def test_full_roundtrip_all_fields(self):
+        # 全字段往返:条件(含排除/评级/排序/每页)、多页含 raw、游标、选中、列表、
+        # 页码、模式、输出过滤
+        state = SessionState(
+            conditions=SearchConditions(
+                site="danbooru", tags=("1girl",), exclude_tags=("nude",),
+                ratings=frozenset({"g", "e"}), sort="score", per_page=60,
+            ),
+            pages=[Page(number=1, posts=[make_post(1, tags=("1girl", "nude"))]),
+                   Page(number=2, posts=[make_post(2)])],
+            cursor=3,
+            selection=2,
+            outlist=[1, 2],
+            page=2,
+            mode="list",
+            out_filter=("nude",),
+        )
+        restored = session_from_json(session_to_json(state))
+        assert restored == state  # 往返一致
+
+    def test_reopen_same_conditions_preserves_cursor(self):
+        # 自动模式保存时游标在中途,重开重拉(条件不变)不丢位置
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(i).raw) for i in (1, 2, 3)
+        ]
+        browser = build_browser(http)
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=[make_post(i) for i in (1, 2, 3)])],
+            cursor=2, selection=3, mode="auto",
+        )
+        session = browser.restore(session_to_json(state))
+        session.search(SearchConditions(site="danbooru"))  # 重开重拉:条件不变
+        assert session.state.cursor == 2  # 自动位置保留(ADR-0002)
+        assert session.state.selection == 3
+
+    def test_reopen_auto_without_selection_preserves_cursor(self):
+        # 自动模式无选中也推进:重开(条件不变)不丢位置
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(i).raw) for i in (1, 2, 3)
+        ]
+        browser = build_browser(http)
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=[make_post(i) for i in (1, 2, 3)])],
+            cursor=2, selection=None, mode="auto",
+        )
+        session = browser.restore(session_to_json(state))
+        session.search(SearchConditions(site="danbooru"))
+        assert session.state.cursor == 2  # 不依赖选中
+
+    def test_reopen_list_mode_preserves_cursor(self):
+        # 列表模式永远无选中:重开后列表位置保留
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(i).raw) for i in (1, 2)
+        ]
+        browser = build_browser(http)
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=[make_post(i) for i in (1, 2)])],
+            cursor=1, selection=None, mode="list", outlist=[1, 2],
+        )
+        session = browser.restore(session_to_json(state))
+        session.search(SearchConditions(site="danbooru"))
+        assert session.state.cursor == 1  # 列表位置保留
+        assert session.state.mode == "list"
+
+    def test_reopen_same_page_preserves_cursor(self):
+        # 页码 >1 的重开走 goto_page(同页重拉),游标保留
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            dict(make_post(i).raw) for i in (1, 2)
+        ]
+        browser = build_browser(http)
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=2, posts=[make_post(i) for i in (1, 2)])],
+            cursor=1, selection=2, page=2, mode="auto",
+        )
+        session = browser.restore(session_to_json(state))
+        session.goto_page(2)  # 重开重拉同一页
+        assert session.state.cursor == 1  # 游标保留
+        assert session.state.page == 2
+
+    def test_filter_change_still_resets_cursor(self):
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(5).raw)]
+        browser = build_browser(http)
+        state = SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(number=1, posts=[make_post(1)])], cursor=1, mode="auto",
+        )
+        session = browser.restore(session_to_json(state))
+        session.search(SearchConditions(site="danbooru", tags=("blue_eyes",)))  # 筛选变更
+        assert session.state.cursor == 0  # 变更即重置
+
+    def test_credentials_never_in_session(self):
+        # 凭据不进会话 JSON(T10 安全约束)
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [dict(make_post(1).raw)]
+        session = build_browser(http).restore("")
+        session.search(SearchConditions(site="danbooru"))
+        serialized = session.serialize()
+        assert "api_key" not in serialized
+        assert "secret" not in serialized
+
+
 class TestOutputFilter:
     """输出过滤:只剔除 Prompt 字符串中的标签,元数据忠实(issue #13)。"""
 

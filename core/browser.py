@@ -178,12 +178,15 @@ class Session:
         site = self._browser.site(conditions.site)
         result = site.search(conditions, page=1)
         prev = self.state
-        if not (prev.conditions == conditions and any(p.id == prev.selection for p in result.posts)):
+        same_conditions = prev.conditions == conditions
+        if not (same_conditions and any(p.id == prev.selection for p in result.posts)):
             prev = SessionState()  # 会话重置:丢弃选中
         self.state = SessionState(
             conditions=conditions,
             pages=[Page(number=1, posts=list(result.posts))],
-            cursor=0,
+            # 重开重拉(条件不变)保留游标,与选中门控解耦(自动/列表无选中也推进);
+            # 筛选变更归零。cursor 从原 state 取,prev 可能已被替换
+            cursor=self.state.cursor if same_conditions else 0,
             selection=prev.selection,
             outlist=self.state.outlist,
             page=1,
@@ -208,7 +211,8 @@ class Session:
         self.state = SessionState(
             conditions=self.state.conditions,
             pages=pages,
-            cursor=0,  # 翻页后游标归零:游标是当前页内的位置
+            # 同页重拉(重开工作流恢复)保留游标(ADR-0002);翻到不同页归零
+            cursor=self.state.cursor if page == self.state.page else 0,
             selection=kept,
             outlist=self.state.outlist,
             page=page,

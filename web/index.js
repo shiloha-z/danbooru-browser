@@ -619,8 +619,9 @@ class BrowserPanel {
     const curPage = (state?.pages || []).find((pg) => pg.number === (state?.page || 1));
     const total = (state?.pages || []).reduce((n, pg) => n + pg.posts.length, 0);
     const nPosts = state?.mode === "auto" ? total : (curPage ? curPage.posts.length : 0);
+    const maxN = state?.mode === "list" ? (state.outlist || []).length : nPosts;
     const cur = state?.cursor != null
-      ? (state?.mode === "list" ? `${state.cursor}/${state.outlist.length}` : `${state.cursor}/${nPosts}`)
+      ? `${Math.min(state.cursor, maxN)}/${maxN}`  // 越界游标(重开结果变少)显示钳制
       : "—";
     const nList = state?.outlist?.length || 0;
     this.statusText.innerHTML = `${modeLabel} · 游标 <b>${cur}</b> · 已选 <b>${sel}</b> · 列表 <b>${nList}</b> · 失败 <b>0</b>`;
