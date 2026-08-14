@@ -37,19 +37,20 @@ class DanbooruBrowserNode:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
-    RETURN_NAMES = ("IMAGE", "PROMPT", "META")
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("IMAGE", "PROMPT", "META", "SESSION")
     FUNCTION = "run"
     CATEGORY = "danbooru_browser"
 
     def run(self, session: str = "", proxy: str = ""):
         get_http().set_proxy(proxy)  # 代理是全局 adapter 设置,执行时同步(与面板搜索一致)
-        output, _ = get_browser().next_output(session or "")
+        output, new_state = get_browser().next_output(session or "")
         if output.kind is OutputKind.IMAGE:
             return (
                 image_bytes_to_tensor(output.image),
                 output.prompt or "",
                 json.dumps(output.metadata, ensure_ascii=False),
+                new_state,  # 自动模式:推进后的会话,前端写回 widget(ADR-0002)
             )
         # 手动模式:EMPTY / FAILED / ANIMATED 均为明确报错(自动/列表模式的跳过语义在后续票)
         raise RuntimeError(output.reason or f"输出失败: {output.kind.value}")

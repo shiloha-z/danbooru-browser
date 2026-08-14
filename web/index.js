@@ -536,5 +536,13 @@ app.registerExtension({
       onConfigure?.apply(this, arguments);
       this._browserPanel?.init();
     };
+    // 执行后把推进后的会话写回 widget(自动模式游标前进;ADR-0002 真相在 widget)
+    const onExecuted = nodeType.prototype.onExecuted;
+    nodeType.prototype.onExecuted = function (outputs) {
+      onExecuted?.apply(this, arguments);
+      if (outputs?.SESSION && this._browserPanel) {
+        this._browserPanel.applyStateOnly(String(outputs.SESSION));
+      }
+    };
   },
 });
