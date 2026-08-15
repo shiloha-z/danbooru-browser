@@ -2,15 +2,13 @@
 
 ComfyUI 自定义节点:在画布上像浏览网站一样翻看 danbooru / gelbooru / civitai 的图,把选中的图连同提示词接进生成流程。
 
-![Danbooru Browser 节点](image.png)
-
 ## 节点
 
-| 节点 | 说明 |
-| --- | --- |
-| **Danbooru Browser** | 主浏览节点:三站浏览、搜索、筛选、翻页、普通/自动/列表三种输出模式 |
-| **文本(透传)** | 提示词编辑:原文/标签双模式、中文翻译(本地索引 + 云翻译)、暂停模式、使用上游输入 |
-| **AnimaDex 浏览器** | 角色/画师搜索浏览器(数据源 animadex.net),点击结果输出 tag 并联动主节点搜索 |
+| 节点 | 说明 | 截图 |
+| --- | --- | --- |
+| **Danbooru Browser** | 主浏览节点:三站浏览、搜索、筛选、翻页、普通/自动/列表三种输出模式 | ![Danbooru Browser](danbooru_browser.png) |
+| **文本(透传)** | 提示词编辑:原文/标签双模式、中文翻译(本地索引 + 云翻译)、暂停模式、使用上游输入 | ![文本(透传)](text_passthrough.png) |
+| **AnimaDex 浏览器** | 角色/画师搜索浏览器(数据源 animadex.net),点击结果输出 tag 并联动主节点搜索 | ![AnimaDex 浏览器](animadex_browser.png) |
 
 ## 功能
 
