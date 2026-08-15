@@ -29,6 +29,32 @@ class TestPassthrough:
 
 
 class TestPauseMode:
+    def test_string_node_id_normalized_to_int(self):
+        # UNIQUE_ID 是字符串,pt_continue 路由转 int:键必须匹配,否则暂停卡满超时
+        from core import pt_state
+        pt_state._status.clear()
+        pt_state._edited.clear()
+        pt_state._gen.clear()
+        notified = []
+        results = {}
+
+        def run():
+            results["out"] = pt_state.pause_execute(
+                "42", "orig", lambda n, g, t: notified.append((n, g, t)), timeout=5,
+            )
+
+        t = threading.Thread(target=run)
+        t.start()
+        for _ in range(50):
+            if pt_state._status.get((42, 1)) == "paused":  # 键是 int
+                break
+            time.sleep(0.02)
+        assert notified == [(42, 1, "orig")]
+        pt_state._edited[(42, 1)] = "edited"
+        pt_state._status[(42, 1)] = "continue"
+        t.join(timeout=5)
+        assert results["out"] == "edited"
+
     def test_blocks_until_continue_with_edited_output(self):
         from core import pt_state
         pt_state._status.clear()

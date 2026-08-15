@@ -258,6 +258,46 @@ def setup_routes(server: PromptServer, browser: Browser, http: HttpAdapter,
             return web.json_response({"success": False, "error": str(e)}, status=500)
         return web.json_response({"success": True, "facets": data})
 
+    @server.routes.post("/danbooru_browser/cloud_translate")
+    async def cloud_translate(request: web.Request) -> web.Response:
+        """文本(透传)云翻译:百度/Google 免费、微软、OpenAI 兼容 LLM。"""
+        if not _local_origin_ok(request):
+            return web.json_response({"error": "非法的请求来源"}, status=403)
+        try:
+            body = await request.json()
+            tags = body.get("tags")
+            if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+                return web.json_response({"success": False, "error": "tags 必须是字符串数组"}, status=400)
+        except Exception:
+            return web.json_response({"success": False, "error": "请求体必须是 JSON"}, status=400)
+        try:
+            from sites.cloud_translate import cloud_translate as do_translate
+            translations = await asyncio.to_thread(
+                do_translate,
+                tags,
+                provider=body.get("provider", "google"),
+                api_key=body.get("api_key"),
+                model=body.get("model"),
+                base_url=body.get("base_url"),
+                as_sentence=bool(body.get("as_sentence", False)),
+                from_lang=body.get("from_lang", "en"),
+                to_lang=body.get("to_lang", "zh"),
+            )
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+        return web.json_response({"success": True, "translations": translations})
+
+    @server.routes.post("/danbooru_browser/clear_translation_cache")
+    async def clear_translation_cache(request: web.Request) -> web.Response:
+        from sites.cloud_translate import clear_cloud_cache
+        ok = await asyncio.to_thread(clear_cloud_cache)
+        return web.json_response({"success": ok})
+
+    @server.routes.post("/danbooru_browser/translation_settings")
+    async def translation_settings(request: web.Request) -> web.Response:
+        """翻译设置由前端 localStorage 保存并按请求传递,后端无需持久化。"""
+        return web.json_response({"success": True})
+
     @server.routes.get("/danbooru_browser/capabilities")
     async def capabilities(request: web.Request) -> web.Response:
         """站点能力:面板切换站点时调整控件(评级单选/排除/排序/搜索模式)。"""

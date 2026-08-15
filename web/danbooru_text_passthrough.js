@@ -92,7 +92,7 @@ app.registerExtension({
                     } else {
                         // 本地无匹配 → 云翻译(句子级)
                         var _prov = _transProvider === "free" ? (_freeMode || "baidu") : _transProvider;
-                        var _cr = await fetch("/danbooru_anima/cloud_translate", {
+                        var _cr = await fetch("/danbooru_browser/cloud_translate", {
                             method: "POST", headers: {"Content-Type":"application/json"},
                             body: JSON.stringify({tags: [v], provider: _prov, api_key: _transApiKey, model: _transModel||"", base_url: _transBaseUrl||"", from_lang: "zh", to_lang: "en", as_sentence: true}),
                         });
@@ -164,7 +164,7 @@ app.registerExtension({
                     return (t.indexOf(" ") >= 0 || t.indexOf(",") >= 0) ? t : t.replace(/ /g, "_");
                 });
                 try {
-                    var _tr = await fetch("/danbooru_anima/cloud_translate", {
+                    var _tr = await fetch("/danbooru_browser/cloud_translate", {
                         method: "POST", headers: {"Content-Type":"application/json"},
                         body: JSON.stringify({tags: _apiTags, provider: _prov, api_key: _key, model: _mod, base_url: _url}),
                     });
@@ -263,7 +263,7 @@ app.registerExtension({
                         var _prov = _transProvider==='free'?_freeMode:_transProvider;
                         var _m = _transProvider==='deepseek'?'deepseek-'+_dsModel:(_transModel||'');
                         var _b = _transBaseUrl||'';
-                        var tr = await fetch('/danbooru_anima/cloud_translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:['1girl','red_hair'],provider:_prov,api_key:_transApiKey,model:_m,base_url:_b})});
+                        var tr = await fetch('/danbooru_browser/cloud_translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:['1girl','red_hair'],provider:_prov,api_key:_transApiKey,model:_m,base_url:_b})});
                         var td = await tr.json();
                         if(td.success){var txt='';for(var k in td.translations)txt+=k+' → '+td.translations[k]+'\n';alert('测试成功:\n'+txt);}
                         else alert('失败: '+(td.error||'未知错误'));
@@ -275,7 +275,7 @@ app.registerExtension({
                 clrCacheBtn.textContent = '🗑 清除缓存'; clrCacheBtn.style.cssText = 'padding:4px 10px;border-radius:4px;background:#3a1a1a;color:#e94560;cursor:pointer;font-size:12px;';
                 clrCacheBtn.onclick = async function(){
                     if(!confirm('确定清除所有云端翻译缓存？'))return;
-                    await fetch('/danbooru_anima/clear_translation_cache',{method:'POST'});
+                    await fetch('/danbooru_browser/clear_translation_cache',{method:'POST'});
                     alert('已清除');
                 };
                 tcDiv.appendChild(clrCacheBtn);
@@ -298,7 +298,7 @@ app.registerExtension({
                 var okBtn = document.createElement('span');
                 okBtn.textContent = '✓ 确定'; okBtn.style.cssText = 'display:inline-block;padding:5px 20px;border-radius:4px;background:#0f3460;color:#4fc3f7;cursor:pointer;font-size:13px;';
                 okBtn.onclick = function(){
-                    fetch('/danbooru_anima/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({translation_provider:_transProvider,translation_api_key:_transApiKey,translation_model:_transProvider==='deepseek'?'deepseek-'+_dsModel:(_transModel||''),translation_base_url:_transBaseUrl||''})}).catch(function(){});
+                    fetch('/danbooru_browser/translation_settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({translation_provider:_transProvider,translation_api_key:_transApiKey,translation_model:_transProvider==='deepseek'?'deepseek-'+_dsModel:(_transModel||''),translation_base_url:_transBaseUrl||''})}).catch(function(){});
                     pop.remove();_soundPopup=null;
                 };
                 okDiv.appendChild(okBtn); pop.appendChild(okDiv);

@@ -20,7 +20,10 @@ def pause_execute(node_id: int, output: str, notify: Callable[[int, int, str], N
 
     notify(node_id, gen, text) 由调用方实现(ComfyUI 推送 db-pt-show-continue)。
     timeout 超时后继续未编辑输出:无前端(API 队列/关页)时不永久阻塞。
+    node_id 归一化为 int:UNIQUE_ID 是字符串,而 pt_continue 路由转 int,
+    类型不一致会导致暂停永不释放(每次执行阻塞满 timeout)。
     """
+    node_id = int(node_id)
     gen = _gen.get(node_id, 0) + 1
     _gen[node_id] = gen
     key = (node_id, gen)
