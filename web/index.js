@@ -52,6 +52,10 @@ const PANEL_CSS = `
 .dbb-grid .thumb .fail-badge{position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#ff5f56;color:#fff;font-size:11px;line-height:16px;text-align:center}
 .dbb-empty{color:#8a8a94;text-align:center;padding:34px 10px;grid-column:1/-1}
 .dbb-empty .big{font-size:26px;margin-bottom:6px}
+.dbb-progress{display:none;height:3px;background:#141419;overflow:hidden;position:relative;flex-shrink:0}
+.dbb-progress.on{display:block}
+.dbb-progress::after{content:"";position:absolute;left:-30%;width:30%;height:100%;background:#4f8cff;animation:dbb-slide 1s linear infinite}
+@keyframes dbb-slide{to{left:130%}}
 .dbb-footer{min-height:34px;border:1px dashed #3a3a42;border-radius:5px;padding:4px 8px;font-size:11px;color:#8a8a94;display:flex;gap:6px;align-items:center}
 .dbb-footer b{color:#d8d8de}
 .dbb-lightbox{position:fixed;inset:0;background:rgba(10,10,14,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
@@ -123,6 +127,7 @@ class BrowserPanel {
     const el = (this.el = document.createElement("div"));
     el.className = "dbb-panel";
     el.innerHTML = `
+      <div class="dbb-progress" id="dbb-progress"></div>
       <div class="dbb-row">
         <select id="dbb-site" title="站点">
           <option value="danbooru" selected>danbooru</option>
@@ -193,6 +198,7 @@ class BrowserPanel {
     this.prefetched = new Map();  // 下一页预取任务:复用帖子响应,不只预热缩略图
     this._stateJson = null;  // 会话解析缓存(getState)
     this._state = null;
+    this.progressEl = el.querySelector("#dbb-progress");
     this.pageInput = el.querySelector("#dbb-page");
     this.prevBtn = el.querySelector("#dbb-prev");
     this.nextBtn = el.querySelector("#dbb-next");
@@ -395,6 +401,7 @@ class BrowserPanel {
 
   async doSearch() {
     this.setError("");
+    this.progressEl?.classList.add("on");  // 加载进度条
     this.clearPrefetch();  // 新搜索 = 新的结果身份,旧的预取记录作废
     try {
       // 模型模式:未从下拉选择时,自动选中第一个模型结果
@@ -416,11 +423,14 @@ class BrowserPanel {
       this.applyResult(res);
     } catch (e) {
       this.setError(`搜索失败: ${e.message || e}`);
+    } finally {
+      this.progressEl?.classList.remove("on");
     }
   }
 
   async gotoPage(n) {
     this.setError("");
+    this.progressEl?.classList.add("on");
     try {
       const stateJson = this.widget?.value || "";
       const prefetched = this.prefetched.get(n);
@@ -442,6 +452,8 @@ class BrowserPanel {
       this.applyResult(res);
     } catch (e) {
       this.setError(`翻页失败: ${e.message || e}`);
+    } finally {
+      this.progressEl?.classList.remove("on");
     }
   }
 
