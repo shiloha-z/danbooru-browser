@@ -199,6 +199,16 @@ class TestSearch:
         assert http.json_calls[0][1]["tags"] == "1girl order:score"
         assert http.json_calls[1][1]["tags"] == "1girl order:rank"
 
+    def test_score_sort_orders_page_client_side(self):
+        # 服务端 rank 非严格降序:客户端按 score 降序重排,可见页真评分序
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts.json"] = [
+            raw_post(1, score=5), raw_post(2, score=99), raw_post(3, score=50),
+        ]
+        site = DanbooruSite(http)
+        result = site.search(SearchConditions(site="danbooru", sort="score", per_page=20), 1)
+        assert [p.id for p in result.posts] == [2, 3, 1]
+
     def test_non_score_500_does_not_fall_back(self):
         http = FlakyHttp(fail_once_urls=["https://danbooru.donmai.us/posts.json"])
         http.json_responses["https://danbooru.donmai.us/posts.json"] = [raw_post(1)]

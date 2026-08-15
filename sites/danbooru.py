@@ -102,6 +102,11 @@ class DanbooruSite:
             # -video 标签覆盖绝大多数视频帖;客户端再按 animated 兜底
             # (gif 动画、缺标签的视频帖)
             posts = tuple(p for p in posts if not p.animated)
+        if conditions.sort == "score":
+            # danbooru 的 order:score 只对纯 rating 查询生效(带标签即 500/422,
+            # 实测);order:rank 是评分混合但非严格降序。客户端按 score 降序重排,
+            # 保证可见页真评分序(页组合仍来自服务端 rank 降级)
+            posts = tuple(sorted(posts, key=lambda p: p.score, reverse=True))
         return SearchResult(posts=posts, page=page, has_next=raw_count >= conditions.per_page)
 
     @staticmethod
