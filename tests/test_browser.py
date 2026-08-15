@@ -578,6 +578,22 @@ class TestFailureStrategy:
         session.set_mode("list")
         out, _ = browser.next_output(session.serialize())
         assert out.kind is OutputKind.EMPTY  # 一圈全失败 → 明确报错
+        assert "下载失败" in (out.reason or "")  # 失败原因明细
+
+    def test_list_refetches_missing_post_by_id(self):
+        # 重开/换筛选后旧帖不在已加载结果:按 id 回源,列表照常输出
+        http = FakeHttp()
+        http.json_responses["https://danbooru.donmai.us/posts/5.json"] = dict(make_post(5).raw)
+        http.bytes_responses[make_post(5).sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(1, [make_post(1)])],  # 5 不在已加载结果
+            outlist=[5, 1],
+        )))
+        session.set_mode("list")
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 5  # 回源后正常输出
 
     def test_empty_results_manual_message(self):
         http = FakeHttp()

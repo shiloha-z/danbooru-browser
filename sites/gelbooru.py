@@ -91,3 +91,15 @@ class GelbooruSite:
 
     def fetch_image(self, post: Post, url: str | None = None) -> bytes:
         return self._http.get_bytes(url or post.file_url)
+
+    def get_post(self, post_id: int) -> Post:
+        """按 id 回源单帖(列表模式缺失帖回退)。"""
+        data = self._http.get_json(
+            f"{self.BASE_URL}",
+            params={"page": "dapi", "s": "post", "q": "index", "json": "1",
+                    "id": post_id, "limit": 1, **self._auth_params()},
+        )
+        posts = [d for d in (data.get("post") or []) if isinstance(d, dict)]
+        if not posts:
+            raise StateError(f"帖子 #{post_id} 不存在或已删除")
+        return parse_post(posts[0], "gelbooru")

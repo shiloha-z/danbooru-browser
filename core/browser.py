@@ -87,6 +87,7 @@ class Browser:
         if not state.outlist:
             return Output(OutputKind.EMPTY, reason="列表为空:先在面板中加入帖子"), state
         cap = len(state.outlist) + 1  # 一整圈:全失败时给出明确报错而非无限循环
+        n_missing = n_bad = 0  # 失败原因统计:不在已加载结果 / 下载失败或动画
         for _ in range(cap):
             if state.cursor < 0 or state.cursor >= len(state.outlist):
                 state.cursor = 0  # 无限循环
@@ -94,19 +95,45 @@ class Browser:
             state.cursor += 1
             post = state.post(post_id)
             if post is None:
+                post = self._refetch_post(state, post_id)  # 重开/换筛选后旧帖回源
+            if post is None:
+                n_missing += 1
                 self._mark_failed(state, post_id)
-                continue  # 不在已加载结果:按失败跳过
+                continue  # 不在已加载结果且回源失败:按失败跳过
             output = self._post_output(state, post, prefer_original)
             if output.kind is OutputKind.IMAGE:
                 state.last_output = post_id  # 当前输出帖(面板红标)
                 return output, state
+            n_bad += 1
             self._mark_failed(state, post_id)
-        return Output(OutputKind.EMPTY, reason="列表中连续多张失败,请移除失败项"), state
+        if n_missing and not n_bad:
+            reason = (f"列表中的帖子都不在已加载结果中({n_missing} 张):"
+                      "筛选变更后旧帖已卸载,请重新浏览并更新列表")
+        elif n_bad and not n_missing:
+            reason = (f"列表中的帖子均下载失败或为动画({n_bad} 张):"
+                      "请检查网络/代理,或移除这些帖子")
+        else:
+            reason = (f"列表中连续多张失败({n_missing} 张不在已加载结果,"
+                      f"{n_bad} 张下载失败/动画),请移除失败项")
+        return Output(OutputKind.EMPTY, reason=reason), state
 
     @staticmethod
     def _mark_failed(state: SessionState, post_id: int) -> None:
         if post_id not in state.failed:
             state.failed.append(post_id)
+
+    def _refetch_post(self, state: SessionState, post_id: int) -> Post | None:
+        """按 id 回源缺失帖并并入当前页(重开工作流/换筛选后列表旧帖回退)。"""
+        site = self.site(state.conditions.site)
+        try:
+            post = site.get_post(post_id)
+        except (StateError, TransportError):
+            return None
+        if state.pages:
+            state.pages[-1].posts.append(post)
+        else:
+            state.pages.append(Page(number=1, posts=[post]))
+        return post
 
     @staticmethod
     def _cap_pages(state: SessionState, max_pages: int = 5) -> None:

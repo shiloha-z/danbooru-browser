@@ -122,6 +122,11 @@ class DanbooruSite:
     def fetch_image(self, post: Post, url: str | None = None) -> bytes:
         return self._http.get_bytes(url or post.file_url)
 
+    def get_post(self, post_id: int) -> Post:
+        """按 id 回源单帖(列表模式缺失帖回退)。"""
+        data = self._http.get_json(f"{self.BASE_URL}/posts/{post_id}.json", auth=self._auth())
+        return parse_post(data, "danbooru")
+
     def autocomplete_tags(self, query: str, limit: int = 10) -> list[str]:
         """标签补全:面板搜索框输入时的候选列表(站点能力,gelbooru/civitai 后续)。"""
         data = self._http.get_json(
