@@ -595,6 +595,40 @@ class TestFailureStrategy:
         out, s = browser.next_output(session.serialize())
         assert out.kind is OutputKind.IMAGE and out.post.id == 5  # 回源后正常输出
 
+    def test_list_cache_serves_without_network(self):
+        # 加入列表时快照帖子数据;换页丢页后列表输出用快照,零网络
+        http = FakeHttp()
+        post = make_post(5, tags=("1girl", "solo"))
+        http.bytes_responses[post.sample_url] = IMAGE_BYTES
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(1, [post])],
+        )))
+        session.add_to_list(5)
+        assert session.state.list_cache["5"]["tags"] == ["1girl", "solo"]  # 加入时快照
+        session.set_mode("list")
+        # 模拟翻页后帖子从页中被丢弃:pages 清空,list_cache 保留
+        session.state.pages = []
+        out, s = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 5  # 快照直接输出
+        assert http.json_calls == []  # 零网络回源
+
+    def test_list_cache_pruned_on_remove_and_clear(self):
+        http = FakeHttp()
+        browser = build_browser(http)
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="danbooru"),
+            pages=[Page(1, [make_post(1), make_post(2)])],
+        )))
+        session.add_to_list(1)
+        session.add_to_list(2)
+        session.remove_from_list(1)
+        assert "1" not in session.state.list_cache
+        assert "2" in session.state.list_cache
+        session.clear_list()
+        assert session.state.list_cache == {}
+
     def test_empty_results_manual_message(self):
         http = FakeHttp()
         state = SessionState(conditions=SearchConditions(site="danbooru"),

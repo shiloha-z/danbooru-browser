@@ -123,12 +123,20 @@ class Browser:
             state.failed.append(post_id)
 
     def _refetch_post(self, state: SessionState, post_id: int) -> Post | None:
-        """按 id 回源缺失帖并并入当前页(重开工作流/换筛选后列表旧帖回退)。"""
+        """列表帖缺失时:先取会话快照(离线可用),再按 id 回源(最后手段)。"""
+        cached = state.list_cache.get(str(post_id))
+        if cached:
+            try:
+                post = Post.from_dict(cached)
+                return post
+            except (ValueError, KeyError):
+                pass
         site = self.site(state.conditions.site)
         try:
             post = site.get_post(post_id)
         except (StateError, TransportError):
             return None
+        state.list_cache[str(post_id)] = post.to_dict()  # 回源成功也入快照
         if state.pages:
             state.pages[-1].posts.append(post)
         else:
@@ -253,6 +261,7 @@ class Session:
             cursor=self.state.cursor if same_conditions else 0,
             selection=prev.selection,
             outlist=self.state.outlist,
+            list_cache=self.state.list_cache,
             page=1,
             mode=self.state.mode,
             out_filter=self.state.out_filter,
@@ -281,6 +290,7 @@ class Session:
             cursor=self.state.cursor if page == self.state.page else 0,
             selection=kept,
             outlist=self.state.outlist,
+            list_cache=self.state.list_cache,
             page=page,
             mode=self.state.mode,
             out_filter=self.state.out_filter,
@@ -311,25 +321,29 @@ class Session:
             self.state.cursor = 0
 
     def add_to_list(self, post_id: int) -> None:
-        """加入输出列表(去重;仅限已加载帖子)。"""
-        self._browser.require_loaded(self.state, post_id)
+        """加入输出列表(去重;仅限已加载帖子)。加入时快照帖子数据,翻页不丢。"""
+        post = self._browser.require_loaded(self.state, post_id)
         if post_id not in self.state.outlist:
             self.state.outlist.append(post_id)
+        self.state.list_cache[str(post_id)] = post.to_dict()
 
     def insert_to_list(self, post_id: int, index: int) -> None:
         """插入指定位置(去重;index 越界钳制到末尾)。"""
-        self._browser.require_loaded(self.state, post_id)
+        post = self._browser.require_loaded(self.state, post_id)
         if post_id in self.state.outlist:
             return
         index = max(0, min(index, len(self.state.outlist)))
         self.state.outlist.insert(index, post_id)
+        self.state.list_cache[str(post_id)] = post.to_dict()
 
     def remove_from_list(self, post_id: int) -> None:
         if post_id in self.state.outlist:
             self.state.outlist.remove(post_id)
+        self.state.list_cache.pop(str(post_id), None)
 
     def clear_list(self) -> None:
         self.state.outlist.clear()
+        self.state.list_cache.clear()
 
     def set_out_filter(self, tags: tuple[str, ...]) -> None:
         """输出过滤:Prompt 派生剔除的标签(不影响搜索条件与结果)。"""
