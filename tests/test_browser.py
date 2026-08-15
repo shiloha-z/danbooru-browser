@@ -93,8 +93,10 @@ class TestManualOutput:
             build_browser(http).next_output(session_to_json(state))
 
     def test_unknown_site_raises_state_error(self):
+        from dataclasses import replace
+        post = replace(make_post(1), site="nope")  # 帖子自身站点未知 → 按帖子站点取站时报错
         state = SessionState(conditions=SearchConditions(site="nope"),
-                             pages=[Page(1, [make_post(1)])], selection=1)
+                             pages=[Page(1, [post])], selection=1)
         with pytest.raises(StateError):
             build_browser(FakeHttp()).next_output(session_to_json(state))
 
@@ -628,6 +630,27 @@ class TestFailureStrategy:
         assert "2" in session.state.list_cache
         session.clear_list()
         assert session.state.list_cache == {}
+
+    def test_cross_site_list_uses_posts_own_site(self):
+        # 切换站点后列表帖仍按帖子自己的站点拉取(danbooru 帖在 gelbooru 会话下)
+        http = FakeHttp()
+        dan_post = make_post(7, tags=("1girl", "solo"))
+        http.bytes_responses[dan_post.sample_url] = IMAGE_BYTES
+        from sites.gelbooru import GelbooruSite
+        browser = Browser(
+            sites={"danbooru": DanbooruSite(http), "gelbooru": GelbooruSite(http, credentials={})},
+        )
+        session = browser.restore(session_to_json(SessionState(
+            conditions=SearchConditions(site="gelbooru"),  # 当前站是 gelbooru
+            pages=[Page(1, [dan_post])],  # 快照里的帖子是 danbooru
+            outlist=[7],
+        )))
+        session.add_to_list(7)
+        session.set_mode("list")
+        session.state.pages = []  # 模拟换站后旧页卸载
+        out, _ = browser.next_output(session.serialize())
+        assert out.kind is OutputKind.IMAGE and out.post.id == 7  # 按帖子自身站点输出
+        assert out.prompt == "1girl, solo"  # danbooru 标签拼接
 
     def test_empty_results_manual_message(self):
         http = FakeHttp()

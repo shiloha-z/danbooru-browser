@@ -68,7 +68,7 @@ class Browser:
 
     def _post_output(self, state: SessionState, post: Post, prefer_original: bool = False) -> Output:
         """取图 → 派生提示词 → 组装输出(手动与自动共用尾部)。"""
-        site = self.site(state.conditions.site)
+        site = self.site(post.site)  # 帖子的站点:跨站列表切换站点后仍按原站拉取
         if post.animated:
             return Output(OutputKind.ANIMATED, post=post,
                           reason="帖子是动画(webm/gif),暂不支持输出")

@@ -709,7 +709,10 @@ class BrowserPanel {
   }
 
   findPost(state, id) {
-    return (state.pages || []).flatMap((pg) => pg.posts).find((p) => p.id === id) || null;
+    const p = (state.pages || []).flatMap((pg) => pg.posts).find((p) => p.id === id);
+    if (p) return p;
+    // 换站/翻页后旧帖不在已加载页:回退会话快照(加入列表时存的完整数据)
+    return state?.list_cache?.[String(id)] || null;
   }
 
   showLightbox(id) {
